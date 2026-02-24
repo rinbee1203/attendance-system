@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, createContext, useContext } from "react";
 
 // ─── API CONFIG ────────────────────────────────────────────────────────────────
-const API_BASE = "https://attendance-system-api.onrender.com/api";
+const API_BASE = "https://attendance-system-api-wc0k.onrender.com";
 
 const api = {
   async request(endpoint, options = {}) {
