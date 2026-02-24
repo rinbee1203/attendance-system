@@ -5,6 +5,7 @@ const Attendance = require("../models/Attendance");
 
 const QR_EXPIRY_SECONDS = parseInt(process.env.QR_EXPIRY_SECONDS) || 60;
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
+const SESSION_DEFAULT_DAYS = parseInt(process.env.SESSION_DEFAULT_DAYS) || 210;
 
 // @desc    Create a new session
 // @route   POST /api/sessions
@@ -17,12 +18,21 @@ const createSession = async (req, res) => {
       return res.status(400).json({ success: false, message: "Subject is required." });
     }
 
+    // Default end time: 210 days from now
+    let resolvedEndTime;
+    if (endTime) {
+      resolvedEndTime = new Date(endTime);
+    } else {
+      resolvedEndTime = new Date();
+      resolvedEndTime.setDate(resolvedEndTime.getDate() + SESSION_DEFAULT_DAYS);
+    }
+
     const session = await Session.create({
       subject,
       teacher: req.user._id,
       room,
       description,
-      endTime: endTime ? new Date(endTime) : undefined,
+      endTime: resolvedEndTime,
     });
 
     res.status(201).json({ success: true, message: "Session created successfully!", session });
@@ -132,7 +142,6 @@ const getSessions = async (req, res) => {
   try {
     const sessions = await Session.find({ teacher: req.user._id }).sort({ createdAt: -1 });
 
-    // Attach attendance count
     const sessionsWithCount = await Promise.all(
       sessions.map(async (s) => {
         const count = await Attendance.countDocuments({ session: s._id });

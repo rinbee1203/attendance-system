@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, createContext, useContext } from "react";
+import { useState, useEffect, useCallback, createContext, useContext, useRef } from "react";
 
 // ─── API CONFIG ────────────────────────────────────────────────────────────────
 const API_BASE = "https://attendance-system-api-wc0k.onrender.com/api";
@@ -38,9 +38,7 @@ function AuthProvider({ children }) {
       localStorage.setItem("user", JSON.stringify(data.user));
       setUser(data.user);
       return data;
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const register = async (payload) => {
@@ -51,9 +49,7 @@ function AuthProvider({ children }) {
       localStorage.setItem("user", JSON.stringify(data.user));
       setUser(data.user);
       return data;
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const logout = () => {
@@ -65,200 +61,354 @@ function AuthProvider({ children }) {
   return <AuthContext.Provider value={{ user, login, register, logout, loading }}>{children}</AuthContext.Provider>;
 }
 
+// ─── EXCEL EXPORT UTILITY ─────────────────────────────────────────────────────
+function exportToExcel(attendance, sessionInfo) {
+  // Build CSV with BOM for Excel compatibility
+  const bom = "\uFEFF";
+  const headers = ["Student Name", "Student ID", "Status", "Date", "Time", "Subject", "Room", "IP Address"];
+
+  const rows = attendance.map((a) => {
+    const ts = new Date(a.timestamp);
+    return [
+      a.student?.name || "N/A",
+      a.student?.studentId || "N/A",
+      a.status === "present" ? "Present" : "Late",
+      ts.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
+      ts.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+      sessionInfo?.subject || "N/A",
+      sessionInfo?.room || "N/A",
+      a.ipAddress || "N/A",
+    ];
+  });
+
+  const csvContent = [headers, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+
+  const blob = new Blob([bom + csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const safeName = (sessionInfo?.subject || "attendance").replace(/[^a-z0-9]/gi, "_").toLowerCase();
+  const dateStr = new Date().toISOString().split("T")[0];
+  link.href = url;
+  link.download = `${safeName}_attendance_${dateStr}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportStudentHistoryToExcel(attendance, studentName) {
+  const bom = "\uFEFF";
+  const headers = ["Subject", "Room", "Teacher", "Status", "Date", "Time"];
+  const rows = attendance.map((a) => {
+    const ts = new Date(a.timestamp);
+    return [
+      a.session?.subject || "N/A",
+      a.session?.room || "N/A",
+      a.session?.teacher?.name || "N/A",
+      a.status === "present" ? "Present" : "Late",
+      ts.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
+      ts.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+    ];
+  });
+
+  const csvContent = [headers, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+
+  const blob = new Blob([bom + csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const safeName = (studentName || "student").replace(/[^a-z0-9]/gi, "_").toLowerCase();
+  const dateStr = new Date().toISOString().split("T")[0];
+  link.href = url;
+  link.download = `${safeName}_attendance_history_${dateStr}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─── DATE HELPERS ─────────────────────────────────────────────────────────────
+function formatDate(date) {
+  return new Date(date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+function formatDateTime(date) {
+  return new Date(date).toLocaleString("en-US", {
+    year: "numeric", month: "short", day: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
+}
+function formatTime(date) {
+  return new Date(date).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+}
+function getDefaultEndDate() {
+  const d = new Date();
+  d.setDate(d.getDate() + 210);
+  return d.toISOString().slice(0, 16);
+}
+
 // ─── STYLES ────────────────────────────────────────────────────────────────────
 const styles = `
-  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap');
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --bg: #0a0a12;
-    --surface: #12121e;
-    --surface2: #1a1a2e;
+    --bg: #070710;
+    --surface: #0f0f1c;
+    --surface2: #16162a;
+    --surface3: #1e1e35;
     --border: rgba(255,255,255,0.07);
+    --border2: rgba(255,255,255,0.12);
     --accent: #6c63ff;
+    --accent-light: #8b84ff;
     --accent2: #ff6584;
     --green: #00d68f;
+    --green-dim: rgba(0,214,143,0.1);
     --yellow: #ffba08;
-    --text: #e8e8f0;
-    --muted: #7c7c9a;
-    --radius: 16px;
+    --yellow-dim: rgba(255,186,8,0.1);
+    --blue: #4dabf7;
+    --text: #e8e8f2;
+    --text-dim: #a0a0c0;
+    --muted: #5c5c80;
+    --radius: 14px;
+    --radius-sm: 8px;
     --font-heading: 'Syne', sans-serif;
     --font-body: 'DM Sans', sans-serif;
+    --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
+    --shadow-md: 0 8px 24px rgba(0,0,0,0.4);
+    --shadow-lg: 0 20px 60px rgba(0,0,0,0.5);
+    --shadow-accent: 0 8px 32px rgba(108,99,255,0.3);
   }
 
-  body { background: var(--bg); color: var(--text); font-family: var(--font-body); min-height: 100vh; }
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-body); min-height: 100vh; -webkit-font-smoothing: antialiased; }
 
   /* Layout */
   .app { min-height: 100vh; display: flex; flex-direction: column; }
-  .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; width: 100%; }
+  .container { max-width: 1140px; margin: 0 auto; padding: 0 28px; width: 100%; }
 
   /* Nav */
-  .nav { padding: 18px 0; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: rgba(10,10,18,0.9); backdrop-filter: blur(20px); z-index: 100; }
-  .nav-inner { display: flex; align-items: center; justify-content: space-between; }
-  .nav-brand { font-family: var(--font-heading); font-size: 1.3rem; font-weight: 800; color: var(--text); display: flex; align-items: center; gap: 10px; }
-  .nav-brand span { background: var(--accent); width: 28px; height: 28px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem; }
+  .nav {
+    padding: 0;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0;
+    background: rgba(7,7,16,0.92);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    z-index: 100;
+  }
+  .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .nav-brand { font-family: var(--font-heading); font-size: 1.25rem; font-weight: 800; color: var(--text); display: flex; align-items: center; gap: 10px; text-decoration: none; }
+  .nav-logo { background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%); width: 32px; height: 32px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.9rem; box-shadow: var(--shadow-accent); flex-shrink: 0; }
   .nav-actions { display: flex; align-items: center; gap: 12px; }
-  .user-badge { background: var(--surface2); border: 1px solid var(--border); padding: 6px 14px; border-radius: 20px; font-size: 0.82rem; color: var(--muted); }
-  .user-badge b { color: var(--text); }
+  .user-pill { display: flex; align-items: center; gap: 8px; background: var(--surface2); border: 1px solid var(--border); padding: 6px 14px 6px 8px; border-radius: 40px; }
+  .user-avatar { width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent2)); display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; color: #fff; flex-shrink: 0; }
+  .user-name { font-size: 0.82rem; font-weight: 600; color: var(--text); }
+  .user-role { font-size: 0.75rem; color: var(--muted); }
 
   /* Buttons */
-  .btn { display: inline-flex; align-items: center; gap: 7px; padding: 10px 20px; border-radius: 10px; font-family: var(--font-body); font-size: 0.9rem; font-weight: 500; cursor: pointer; border: none; transition: all 0.2s ease; text-decoration: none; }
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn-primary { background: var(--accent); color: #fff; }
-  .btn-primary:hover:not(:disabled) { background: #7c75ff; transform: translateY(-1px); box-shadow: 0 8px 24px rgba(108,99,255,0.35); }
-  .btn-danger { background: rgba(255,101,132,0.15); color: var(--accent2); border: 1px solid rgba(255,101,132,0.3); }
-  .btn-danger:hover:not(:disabled) { background: rgba(255,101,132,0.25); }
-  .btn-ghost { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
-  .btn-ghost:hover:not(:disabled) { color: var(--text); border-color: rgba(255,255,255,0.15); }
-  .btn-green { background: rgba(0,214,143,0.15); color: var(--green); border: 1px solid rgba(0,214,143,0.3); }
-  .btn-green:hover:not(:disabled) { background: rgba(0,214,143,0.25); }
-  .btn-sm { padding: 7px 14px; font-size: 0.82rem; border-radius: 8px; }
-  .btn-lg { padding: 14px 28px; font-size: 1rem; border-radius: 12px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 18px; border-radius: var(--radius-sm); font-family: var(--font-body); font-size: 0.875rem; font-weight: 500; cursor: pointer; border: none; transition: all 0.18s ease; text-decoration: none; white-space: nowrap; }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+  .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 0 0 0 rgba(108,99,255,0); }
+  .btn-primary:hover { background: var(--accent-light); box-shadow: var(--shadow-accent); transform: translateY(-1px); }
+  .btn-danger { background: rgba(255,101,132,0.12); color: #ff8fa3; border: 1px solid rgba(255,101,132,0.25); }
+  .btn-danger:hover { background: rgba(255,101,132,0.2); border-color: rgba(255,101,132,0.4); }
+  .btn-ghost { background: var(--surface2); color: var(--text-dim); border: 1px solid var(--border); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--border2); background: var(--surface3); }
+  .btn-green { background: rgba(0,214,143,0.1); color: var(--green); border: 1px solid rgba(0,214,143,0.25); }
+  .btn-green:hover { background: rgba(0,214,143,0.18); border-color: rgba(0,214,143,0.4); }
+  .btn-excel { background: rgba(21,128,61,0.12); color: #4ade80; border: 1px solid rgba(21,128,61,0.3); }
+  .btn-excel:hover { background: rgba(21,128,61,0.2); border-color: rgba(21,128,61,0.5); }
+  .btn-sm { padding: 6px 12px; font-size: 0.8rem; border-radius: 7px; }
+  .btn-lg { padding: 13px 26px; font-size: 0.95rem; border-radius: 10px; }
 
   /* Cards */
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; }
-  .card-hover { transition: all 0.25s ease; }
-  .card-hover:hover { border-color: rgba(108,99,255,0.3); transform: translateY(-2px); box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
 
   /* Forms */
-  .form-group { margin-bottom: 18px; }
-  .form-label { display: block; font-size: 0.82rem; font-weight: 500; color: var(--muted); margin-bottom: 7px; text-transform: uppercase; letter-spacing: 0.05em; }
-  .form-input { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 11px 14px; color: var(--text); font-family: var(--font-body); font-size: 0.92rem; transition: border-color 0.2s; outline: none; }
+  .form-group { margin-bottom: 16px; }
+  .form-label { display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .form-input { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 13px; color: var(--text); font-family: var(--font-body); font-size: 0.9rem; transition: all 0.18s; outline: none; }
   .form-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(108,99,255,0.12); }
   .form-input::placeholder { color: var(--muted); }
-  .form-select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%237c7c9a' d='M6 8L1 3h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; cursor: pointer; }
-  .form-error { color: var(--accent2); font-size: 0.82rem; margin-top: 4px; }
-  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-
-  /* Auth page */
-  .auth-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; position: relative; overflow: hidden; }
-  .auth-bg { position: absolute; inset: 0; background: radial-gradient(ellipse 80% 60% at 50% -20%, rgba(108,99,255,0.18) 0%, transparent 70%); pointer-events: none; }
-  .auth-card { width: 100%; max-width: 440px; position: relative; z-index: 1; }
-  .auth-header { text-align: center; margin-bottom: 36px; }
-  .auth-logo { width: 56px; height: 56px; background: linear-gradient(135deg, var(--accent), #9b8eff); border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.6rem; margin-bottom: 20px; box-shadow: 0 12px 32px rgba(108,99,255,0.35); }
-  .auth-title { font-family: var(--font-heading); font-size: 1.8rem; font-weight: 800; margin-bottom: 8px; }
-  .auth-sub { color: var(--muted); font-size: 0.9rem; }
-  .auth-divider { text-align: center; margin: 22px 0; position: relative; }
-  .auth-divider::before { content: ''; position: absolute; top: 50%; left: 0; right: 0; height: 1px; background: var(--border); }
-  .auth-divider span { position: relative; background: var(--surface); padding: 0 12px; color: var(--muted); font-size: 0.82rem; }
-  .auth-switch { text-align: center; margin-top: 20px; font-size: 0.88rem; color: var(--muted); }
-  .auth-switch a { color: var(--accent); cursor: pointer; font-weight: 500; }
-  .auth-switch a:hover { text-decoration: underline; }
-  .role-tabs { display: flex; background: var(--surface2); border-radius: 10px; padding: 4px; margin-bottom: 24px; }
-  .role-tab { flex: 1; padding: 9px; text-align: center; border-radius: 8px; cursor: pointer; font-size: 0.88rem; font-weight: 500; transition: all 0.2s; color: var(--muted); }
-  .role-tab.active { background: var(--surface); color: var(--text); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
-
-  /* Dashboard */
-  .main { flex: 1; padding: 36px 0; }
-  .page-header { margin-bottom: 32px; }
-  .page-title { font-family: var(--font-heading); font-size: 2rem; font-weight: 800; margin-bottom: 6px; }
-  .page-sub { color: var(--muted); font-size: 0.92rem; }
-
-  /* Stats */
-  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
-  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
-  .stat-label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 10px; }
-  .stat-value { font-family: var(--font-heading); font-size: 2.2rem; font-weight: 800; line-height: 1; }
-  .stat-accent { color: var(--accent); }
-  .stat-green { color: var(--green); }
-  .stat-yellow { color: var(--yellow); }
-
-  /* Sessions list */
-  .sessions-grid { display: grid; gap: 16px; }
-  .session-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; display: flex; align-items: center; gap: 16px; transition: all 0.22s; }
-  .session-card:hover { border-color: rgba(108,99,255,0.25); transform: translateY(-1px); }
-  .session-icon { width: 46px; height: 46px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; }
-  .session-icon.active { background: rgba(0,214,143,0.12); }
-  .session-icon.inactive { background: var(--surface2); }
-  .session-info { flex: 1; }
-  .session-subject { font-family: var(--font-heading); font-weight: 700; font-size: 1.05rem; margin-bottom: 4px; }
-  .session-meta { font-size: 0.8rem; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
-  .session-actions { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
-  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 500; }
-  .badge-active { background: rgba(0,214,143,0.12); color: var(--green); }
-  .badge-inactive { background: var(--surface2); color: var(--muted); }
-  .badge-late { background: rgba(255,186,8,0.12); color: var(--yellow); }
-  .badge-present { background: rgba(0,214,143,0.12); color: var(--green); }
-
-  /* QR Modal */
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 24px; backdrop-filter: blur(4px); animation: fadeIn 0.2s ease; }
-  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 32px; max-width: 460px; width: 100%; animation: slideUp 0.25s ease; }
-  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-  @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-  .modal-header { margin-bottom: 24px; }
-  .modal-title { font-family: var(--font-heading); font-size: 1.4rem; font-weight: 800; margin-bottom: 4px; }
-  .modal-sub { color: var(--muted); font-size: 0.85rem; }
-  .qr-wrapper { background: #fff; border-radius: 16px; padding: 20px; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; width: fit-content; }
-  .qr-wrapper img { display: block; width: 220px; height: 220px; }
-  .countdown { text-align: center; margin-bottom: 20px; }
-  .countdown-ring { display: inline-flex; align-items: center; gap: 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 20px; }
-  .countdown-num { font-family: var(--font-heading); font-size: 1.6rem; font-weight: 800; color: var(--accent); min-width: 40px; text-align: center; }
-  .countdown-label { color: var(--muted); font-size: 0.82rem; }
-  .modal-actions { display: flex; gap: 10px; }
-
-  /* Attendance table */
-  .table-wrapper { overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--border); }
-  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-  th { background: var(--surface2); padding: 12px 16px; text-align: left; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; }
-  td { padding: 12px 16px; border-top: 1px solid var(--border); vertical-align: middle; }
-  tr:hover td { background: rgba(255,255,255,0.02); }
-  .avatar { width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, var(--accent), var(--accent2)); display: inline-flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 700; color: #fff; margin-right: 10px; vertical-align: middle; }
-
-  /* Student checkin page */
-  .checkin-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
-  .checkin-card { max-width: 400px; width: 100%; text-align: center; }
-  .checkin-icon { font-size: 4rem; margin-bottom: 20px; display: block; }
-  .checkin-title { font-family: var(--font-heading); font-size: 1.6rem; font-weight: 800; margin-bottom: 8px; }
-  .checkin-sub { color: var(--muted); margin-bottom: 28px; }
-  .success-card { background: rgba(0,214,143,0.08); border: 1px solid rgba(0,214,143,0.2); border-radius: 16px; padding: 28px; }
-  .error-card { background: rgba(255,101,132,0.08); border: 1px solid rgba(255,101,132,0.2); border-radius: 16px; padding: 28px; }
+  .form-select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%235c5c80' d='M6 8L1 3h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; cursor: pointer; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .form-hint { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
 
   /* Alert */
-  .alert { padding: 12px 16px; border-radius: 10px; font-size: 0.88rem; margin-bottom: 18px; }
-  .alert-error { background: rgba(255,101,132,0.1); border: 1px solid rgba(255,101,132,0.25); color: #ff8fa3; }
-  .alert-success { background: rgba(0,214,143,0.1); border: 1px solid rgba(0,214,143,0.25); color: var(--green); }
+  .alert { padding: 11px 14px; border-radius: var(--radius-sm); font-size: 0.86rem; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .alert-error { background: rgba(255,101,132,0.08); border: 1px solid rgba(255,101,132,0.2); color: #ff8fa3; }
+  .alert-success { background: rgba(0,214,143,0.08); border: 1px solid rgba(0,214,143,0.2); color: var(--green); }
+
+  /* Auth */
+  .auth-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; position: relative; overflow: hidden; }
+  .auth-bg { position: absolute; inset: 0; background: radial-gradient(ellipse 70% 50% at 50% 0%, rgba(108,99,255,0.15) 0%, transparent 70%); pointer-events: none; }
+  .auth-grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px); background-size: 60px 60px; pointer-events: none; mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%); }
+  .auth-card { width: 100%; max-width: 440px; position: relative; z-index: 1; }
+  .auth-header { text-align: center; margin-bottom: 32px; }
+  .auth-logo { width: 60px; height: 60px; background: linear-gradient(135deg, var(--accent), var(--accent2)); border-radius: 18px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.8rem; margin-bottom: 18px; box-shadow: 0 16px 40px rgba(108,99,255,0.4); }
+  .auth-title { font-family: var(--font-heading); font-size: 1.9rem; font-weight: 800; margin-bottom: 6px; }
+  .auth-sub { color: var(--text-dim); font-size: 0.88rem; }
+  .auth-switch { text-align: center; margin-top: 18px; font-size: 0.85rem; color: var(--muted); }
+  .auth-switch a { color: var(--accent-light); cursor: pointer; font-weight: 500; }
+  .auth-switch a:hover { text-decoration: underline; }
+  .role-tabs { display: flex; background: var(--surface2); border-radius: var(--radius-sm); padding: 3px; margin-bottom: 22px; gap: 3px; }
+  .role-tab { flex: 1; padding: 8px; text-align: center; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500; transition: all 0.18s; color: var(--muted); }
+  .role-tab.active { background: var(--surface3); color: var(--text); box-shadow: var(--shadow-sm); }
+
+  /* Dashboard layout */
+  .main { flex: 1; padding: 36px 0 60px; }
+  .page-header { margin-bottom: 28px; display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 16px; }
+  .page-title { font-family: var(--font-heading); font-size: 1.9rem; font-weight: 800; margin-bottom: 4px; line-height: 1.2; }
+  .page-sub { color: var(--text-dim); font-size: 0.88rem; }
+  .page-title-block { }
+
+  /* Stats */
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 28px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; position: relative; overflow: hidden; }
+  .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--stat-color, var(--accent)); opacity: 0.6; }
+  .stat-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin-bottom: 10px; font-weight: 600; }
+  .stat-value { font-family: var(--font-heading); font-size: 2rem; font-weight: 800; line-height: 1; color: var(--stat-color, var(--text)); }
+  .stat-sub { font-size: 0.75rem; color: var(--muted); margin-top: 5px; }
+
+  /* Section header */
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
+  .section-title { font-family: var(--font-heading); font-size: 1rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+
+  /* Sessions grid */
+  .sessions-grid { display: grid; gap: 12px; }
+  .session-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; display: flex; align-items: center; gap: 16px; transition: all 0.2s; cursor: default; }
+  .session-card:hover { border-color: rgba(108,99,255,0.2); background: var(--surface2); }
+  .session-icon { width: 44px; height: 44px; border-radius: 11px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; flex-shrink: 0; }
+  .session-icon.active { background: rgba(0,214,143,0.1); border: 1px solid rgba(0,214,143,0.2); }
+  .session-icon.inactive { background: var(--surface2); border: 1px solid var(--border); }
+  .session-info { flex: 1; min-width: 0; }
+  .session-subject { font-family: var(--font-heading); font-weight: 700; font-size: 1rem; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .session-meta { font-size: 0.78rem; color: var(--text-dim); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .session-actions { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
+
+  /* Badges */
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 20px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em; }
+  .badge-active { background: rgba(0,214,143,0.1); color: var(--green); border: 1px solid rgba(0,214,143,0.2); }
+  .badge-inactive { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+  .badge-present { background: rgba(0,214,143,0.1); color: var(--green); border: 1px solid rgba(0,214,143,0.2); }
+  .badge-late { background: rgba(255,186,8,0.1); color: var(--yellow); border: 1px solid rgba(255,186,8,0.2); }
+
+  /* QR Modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 24px; backdrop-filter: blur(6px); animation: fadeIn 0.15s ease; }
+  .modal { background: var(--surface); border: 1px solid var(--border2); border-radius: 20px; padding: 28px; max-width: 480px; width: 100%; animation: slideUp 0.2s ease; max-height: 90vh; overflow-y: auto; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  .modal-header { margin-bottom: 20px; }
+  .modal-title { font-family: var(--font-heading); font-size: 1.35rem; font-weight: 800; margin-bottom: 3px; }
+  .modal-sub { color: var(--text-dim); font-size: 0.83rem; }
+  .modal-top-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .qr-wrapper { background: #fff; border-radius: 14px; padding: 18px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; width: fit-content; }
+  .qr-wrapper img { display: block; width: 210px; height: 210px; }
+  .countdown { text-align: center; margin-bottom: 18px; }
+  .countdown-ring { display: inline-flex; align-items: center; gap: 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 18px; }
+  .countdown-num { font-family: var(--font-heading); font-size: 1.5rem; font-weight: 800; min-width: 36px; text-align: center; transition: color 0.3s; }
+  .countdown-label { color: var(--muted); font-size: 0.8rem; line-height: 1.3; }
+  .modal-actions { display: flex; gap: 8px; }
+
+  /* Attendance detail view */
+  .detail-header { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; flex-wrap: wrap; }
+  .detail-back { flex-shrink: 0; }
+  .detail-info { flex: 1; min-width: 0; }
+  .detail-title { font-family: var(--font-heading); font-size: 1.5rem; font-weight: 800; margin-bottom: 3px; }
+  .detail-meta { font-size: 0.82rem; color: var(--text-dim); display: flex; gap: 14px; flex-wrap: wrap; }
+
+  /* Table */
+  .table-wrapper { overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+  thead { position: sticky; top: 0; z-index: 1; }
+  th { background: var(--surface2); padding: 11px 16px; text-align: left; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 700; white-space: nowrap; }
+  td { padding: 11px 16px; border-top: 1px solid var(--border); vertical-align: middle; color: var(--text-dim); }
+  td.td-name { color: var(--text); font-weight: 500; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.015); }
+  .avatar { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, var(--accent), var(--accent2)); display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; color: #fff; margin-right: 9px; vertical-align: middle; flex-shrink: 0; }
+
+  /* Student checkin */
+  .checkin-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .checkin-card { max-width: 420px; width: 100%; text-align: center; }
+  .checkin-icon { font-size: 3.5rem; margin-bottom: 16px; display: block; }
+  .checkin-title { font-family: var(--font-heading); font-size: 1.55rem; font-weight: 800; margin-bottom: 7px; }
+  .checkin-sub { color: var(--text-dim); margin-bottom: 24px; font-size: 0.9rem; }
+  .checkin-info-row { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.83rem; color: var(--muted); margin-bottom: 7px; }
+  .success-card { background: rgba(0,214,143,0.06); border: 1px solid rgba(0,214,143,0.18); border-radius: var(--radius); padding: 28px; }
+  .error-card { background: rgba(255,101,132,0.06); border: 1px solid rgba(255,101,132,0.18); border-radius: var(--radius); padding: 28px; }
+  .already-card { background: rgba(77,171,247,0.06); border: 1px solid rgba(77,171,247,0.18); border-radius: var(--radius); padding: 28px; }
 
   /* Student history */
-  .history-list { display: grid; gap: 12px; }
-  .history-item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; display: flex; align-items: center; gap: 14px; }
-  .history-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-  .history-dot.present { background: var(--green); box-shadow: 0 0 8px var(--green); }
-  .history-dot.late { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
-  .history-body { flex: 1; }
-  .history-subject { font-weight: 600; margin-bottom: 2px; }
-  .history-meta { font-size: 0.78rem; color: var(--muted); }
+  .history-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; align-items: center; }
+  .filter-chip { padding: 5px 13px; border-radius: 20px; font-size: 0.78rem; font-weight: 600; cursor: pointer; transition: all 0.15s; background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+  .filter-chip.active { background: rgba(108,99,255,0.15); color: var(--accent-light); border-color: rgba(108,99,255,0.3); }
+  .history-list { display: grid; gap: 10px; }
+  .history-item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; transition: all 0.18s; }
+  .history-item:hover { border-color: rgba(255,255,255,0.1); }
+  .history-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .history-dot.present { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .history-dot.late { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+  .history-body { min-width: 0; }
+  .history-subject { font-weight: 600; margin-bottom: 3px; font-size: 0.92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .history-meta { font-size: 0.76rem; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; }
+  .history-date { font-size: 0.76rem; text-align: right; }
+  .history-date-main { color: var(--text-dim); font-weight: 500; white-space: nowrap; }
+  .history-date-time { color: var(--muted); font-size: 0.72rem; margin-top: 2px; }
+  .history-side { text-align: right; }
 
-  /* Empty */
-  .empty { text-align: center; padding: 60px 24px; color: var(--muted); }
-  .empty-icon { font-size: 3rem; margin-bottom: 16px; opacity: 0.4; }
-  .empty-text { font-size: 0.92rem; }
+  /* Empty state */
+  .empty { text-align: center; padding: 56px 24px; color: var(--muted); }
+  .empty-icon { font-size: 2.5rem; margin-bottom: 14px; opacity: 0.35; }
+  .empty-text { font-size: 0.9rem; line-height: 1.6; }
 
   /* Loader */
-  .spinner { width: 20px; height: 20px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; }
+  .spinner { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.15); border-top-color: currentColor; border-radius: 50%; animation: spin 0.65s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .loading-page { display: flex; align-items: center; justify-content: center; min-height: 200px; }
+  .loading-page { display: flex; align-items: center; justify-content: center; min-height: 180px; }
+  .loading-page .spinner { width: 28px; height: 28px; border-width: 2.5px; color: var(--accent); }
 
-  /* Create session modal form */
-  .section-title { font-family: var(--font-heading); font-size: 1.1rem; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  /* Divider */
+  .divider { height: 1px; background: var(--border); margin: 20px 0; }
+
+  /* Session end date */
+  .session-enddate { font-size: 0.75rem; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+  .session-enddate.soon { color: var(--yellow); }
+  .session-enddate.expired { color: var(--accent2); }
+
+  /* Excel export area */
+  .export-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .export-info { font-size: 0.8rem; color: var(--muted); }
+
+  /* Date tag in table */
+  .date-cell { display: flex; flex-direction: column; gap: 1px; }
+  .date-cell-date { color: var(--text-dim); }
+  .date-cell-time { font-size: 0.72rem; color: var(--muted); }
 
   /* Responsive */
-  @media (max-width: 600px) {
+  @media (max-width: 640px) {
     .form-row { grid-template-columns: 1fr; }
-    .session-card { flex-direction: column; align-items: flex-start; }
+    .session-card { flex-wrap: wrap; }
     .session-actions { width: 100%; }
     .stats-grid { grid-template-columns: 1fr 1fr; }
-    .page-title { font-size: 1.5rem; }
-    .modal { padding: 24px 20px; }
+    .page-title { font-size: 1.55rem; }
+    .modal { padding: 20px 18px; }
+    .history-item { grid-template-columns: auto 1fr; }
+    .history-side { display: none; }
+    .detail-meta { gap: 8px; }
+    .container { padding: 0 18px; }
   }
 `;
 
 // ─── COMPONENTS ───────────────────────────────────────────────────────────────
-function Spinner() { return <div className="spinner" />; }
+function Spinner({ size = 18 }) {
+  return <div className="spinner" style={{ width: size, height: size }} />;
+}
 
 function Alert({ type = "error", message }) {
   if (!message) return null;
-  return <div className={`alert alert-${type}`}>{message}</div>;
+  const icon = type === "error" ? "⚠" : "✓";
+  return <div className={`alert alert-${type}`}><span>{icon}</span>{message}</div>;
 }
 
 function Nav() {
@@ -267,15 +417,20 @@ function Nav() {
     <nav className="nav">
       <div className="container nav-inner">
         <div className="nav-brand">
-          <span>📋</span> AttendQR
+          <div className="nav-logo">📋</div>
+          AttendQR
         </div>
         <div className="nav-actions">
           {user && (
             <>
-              <div className="user-badge">
-                <b>{user.name}</b> · {user.role}
+              <div className="user-pill">
+                <div className="user-avatar">{user.name?.[0]?.toUpperCase()}</div>
+                <div>
+                  <div className="user-name">{user.name}</div>
+                  <div className="user-role">{user.role}</div>
+                </div>
               </div>
-              <button className="btn btn-ghost btn-sm" onClick={logout}>Logout</button>
+              <button className="btn btn-ghost btn-sm" onClick={logout}>Sign out</button>
             </>
           )}
         </div>
@@ -284,7 +439,7 @@ function Nav() {
   );
 }
 
-// ─── AUTH PAGES ───────────────────────────────────────────────────────────────
+// ─── AUTH ─────────────────────────────────────────────────────────────────────
 function AuthPage({ onSuccess }) {
   const [mode, setMode] = useState("login");
   const [role, setRole] = useState("student");
@@ -298,32 +453,28 @@ function AuthPage({ onSuccess }) {
     e.preventDefault();
     setError("");
     try {
-      if (mode === "login") {
-        await login(form.email, form.password);
-      } else {
-        await register({ ...form, role });
-      }
+      if (mode === "login") await login(form.email, form.password);
+      else await register({ ...form, role });
       onSuccess();
-    } catch (err) {
-      setError(err.message);
-    }
+    } catch (err) { setError(err.message); }
   };
 
   return (
     <div className="auth-page">
       <div className="auth-bg" />
+      <div className="auth-grid" />
       <div className="auth-card card">
         <div className="auth-header">
           <div className="auth-logo">📋</div>
           <h1 className="auth-title">{mode === "login" ? "Welcome back" : "Get started"}</h1>
-          <p className="auth-sub">{mode === "login" ? "Sign in to your account" : "Create your free account"}</p>
+          <p className="auth-sub">{mode === "login" ? "Sign in to your AttendQR account" : "Create your free account today"}</p>
         </div>
 
         {mode === "register" && (
           <div className="role-tabs">
             {["student", "teacher"].map((r) => (
               <div key={r} className={`role-tab ${role === r ? "active" : ""}`} onClick={() => setRole(r)}>
-                {r === "student" ? "👨‍🎓" : "👨‍🏫"} {r.charAt(0).toUpperCase() + r.slice(1)}
+                {r === "student" ? "👨‍🎓 Student" : "👨‍🏫 Teacher"}
               </div>
             ))}
           </div>
@@ -352,7 +503,7 @@ function AuthPage({ onSuccess }) {
               <input className="form-input" name="studentId" value={form.studentId} onChange={handleChange} placeholder="e.g. 2021-12345" required />
             </div>
           )}
-          <button type="submit" className="btn btn-primary btn-lg" style={{ width: "100%", justifyContent: "center" }} disabled={loading}>
+          <button type="submit" className="btn btn-primary btn-lg" style={{ width: "100%" }} disabled={loading}>
             {loading ? <Spinner /> : mode === "login" ? "Sign In" : "Create Account"}
           </button>
         </form>
@@ -371,7 +522,8 @@ function AuthPage({ onSuccess }) {
 
 // ─── CREATE SESSION MODAL ─────────────────────────────────────────────────────
 function CreateSessionModal({ onClose, onCreated }) {
-  const [form, setForm] = useState({ subject: "", room: "", description: "" });
+  const defaultEnd = getDefaultEndDate();
+  const [form, setForm] = useState({ subject: "", room: "", description: "", endTime: defaultEnd });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -385,17 +537,20 @@ function CreateSessionModal({ onClose, onCreated }) {
       onClose();
     } catch (err) {
       setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="modal-header">
-          <h2 className="modal-title">Create New Session</h2>
-          <p className="modal-sub">Set up a class attendance session</p>
+          <div className="modal-top-row">
+            <div>
+              <h2 className="modal-title">New Session</h2>
+              <p className="modal-sub">Set up a class attendance session</p>
+            </div>
+            <button className="btn btn-ghost btn-sm" onClick={onClose} style={{ flexShrink: 0 }}>✕</button>
+          </div>
         </div>
         <Alert message={error} />
         <form onSubmit={handleSubmit}>
@@ -408,14 +563,19 @@ function CreateSessionModal({ onClose, onCreated }) {
               <label className="form-label">Room</label>
               <input className="form-input" value={form.room} onChange={(e) => setForm((f) => ({ ...f, room: e.target.value }))} placeholder="e.g. Room 201" />
             </div>
+            <div className="form-group">
+              <label className="form-label">End Date / Time</label>
+              <input className="form-input" type="datetime-local" value={form.endTime} onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))} />
+              <p className="form-hint">Default: 210 days from now</p>
+            </div>
           </div>
           <div className="form-group">
             <label className="form-label">Description</label>
-            <input className="form-input" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Optional notes" />
+            <input className="form-input" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Optional notes about this session" />
           </div>
           <div className="modal-actions">
             <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary" style={{ flex: 1, justifyContent: "center" }} disabled={loading}>
+            <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={loading}>
               {loading ? <Spinner /> : "Create Session"}
             </button>
           </div>
@@ -454,15 +614,16 @@ function QRModal({ session, onClose, onRefresh, onStop }) {
   };
 
   const isUrgent = countdown <= 10;
+  const progressPct = Math.round((countdown / 60) * 100);
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: 480 }}>
+      <div className="modal" style={{ maxWidth: 460 }}>
         <div className="modal-header">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div className="modal-top-row">
             <div>
               <h2 className="modal-title">📋 {session.subject}</h2>
-              <p className="modal-sub">{session.room || "No room specified"} · Show this QR to students</p>
+              <p className="modal-sub">{session.room ? `📍 ${session.room}` : "No room specified"} · Active since {formatTime(session.startTime)}</p>
             </div>
             <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
           </div>
@@ -473,27 +634,58 @@ function QRModal({ session, onClose, onRefresh, onStop }) {
             <img src={session.qrDataUrl} alt="QR Code" />
           </div>
         ) : (
-          <div className="loading-page"><Spinner /></div>
+          <div className="loading-page"><Spinner size={32} /></div>
         )}
 
         <div className="countdown">
           <div className="countdown-ring">
-            <div className="countdown-num" style={{ color: isUrgent ? "var(--accent2)" : "var(--accent)" }}>{countdown}</div>
+            <div className="countdown-num" style={{ color: isUrgent ? "var(--accent2)" : "var(--green)" }}>
+              {String(countdown).padStart(2, "0")}
+            </div>
             <div className="countdown-label">seconds until<br />QR refreshes</div>
+            <div style={{ width: 36, height: 36, position: "relative" }}>
+              <svg width="36" height="36" style={{ transform: "rotate(-90deg)" }}>
+                <circle cx="18" cy="18" r="14" fill="none" stroke="var(--border2)" strokeWidth="2.5" />
+                <circle cx="18" cy="18" r="14" fill="none"
+                  stroke={isUrgent ? "var(--accent2)" : "var(--green)"}
+                  strokeWidth="2.5"
+                  strokeDasharray={`${2 * Math.PI * 14}`}
+                  strokeDashoffset={`${2 * Math.PI * 14 * (1 - progressPct / 100)}`}
+                  strokeLinecap="round"
+                  style={{ transition: "stroke-dashoffset 0.5s, stroke 0.3s" }}
+                />
+              </svg>
+            </div>
           </div>
         </div>
 
         <div className="modal-actions">
           <button className="btn btn-ghost" onClick={handleRefresh} disabled={refreshing}>
-            {refreshing ? <Spinner /> : "🔄 Refresh Now"}
+            {refreshing ? <Spinner /> : "🔄 Refresh"}
           </button>
-          <button className="btn btn-danger" onClick={handleStop} disabled={stopping} style={{ flex: 1, justifyContent: "center" }}>
+          <button className="btn btn-danger" onClick={handleStop} disabled={stopping} style={{ flex: 1 }}>
             {stopping ? <Spinner /> : "⏹ Stop Session"}
           </button>
         </div>
       </div>
     </div>
   );
+}
+
+// ─── SESSION END DATE LABEL ───────────────────────────────────────────────────
+function SessionEndLabel({ endTime }) {
+  if (!endTime) return null;
+  const end = new Date(endTime);
+  const now = new Date();
+  const diffDays = Math.ceil((end - now) / (1000 * 60 * 60 * 24));
+
+  let cls = "session-enddate";
+  let text = "";
+  if (diffDays < 0) { cls += " expired"; text = "Expired"; }
+  else if (diffDays <= 14) { cls += " soon"; text = `Expires in ${diffDays}d`; }
+  else { text = `Until ${formatDate(end)}`; }
+
+  return <span className={cls}>📅 {text}</span>;
 }
 
 // ─── TEACHER DASHBOARD ────────────────────────────────────────────────────────
@@ -505,16 +697,14 @@ function TeacherDashboard() {
   const [viewSession, setViewSession] = useState(null);
   const [attendance, setAttendance] = useState([]);
   const [loadingAttendance, setLoadingAttendance] = useState(false);
+  const [filterStatus, setFilterStatus] = useState("all");
 
   const fetchSessions = useCallback(async () => {
     try {
       const data = await api.get("/sessions");
       setSessions(data.sessions);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
@@ -522,11 +712,9 @@ function TeacherDashboard() {
   const handleStart = async (sessionId) => {
     try {
       const data = await api.post(`/sessions/${sessionId}/start`, {});
-      setSessions((prev) => prev.map((s) => (s._id === sessionId ? { ...s, isActive: true } : s)));
+      setSessions((prev) => prev.map((s) => s._id === sessionId ? { ...s, isActive: true } : s));
       setActiveQR(data.session);
-    } catch (err) {
-      alert(err.message);
-    }
+    } catch (err) { alert(err.message); }
   };
 
   const handleRefreshQR = async () => {
@@ -538,7 +726,7 @@ function TeacherDashboard() {
   const handleStop = async () => {
     if (!activeQR) return;
     await api.post(`/sessions/${activeQR._id}/stop`, {});
-    setSessions((prev) => prev.map((s) => (s._id === activeQR._id ? { ...s, isActive: false } : s)));
+    setSessions((prev) => prev.map((s) => s._id === activeQR._id ? { ...s, isActive: false } : s));
     setActiveQR(null);
     fetchSessions();
   };
@@ -546,53 +734,96 @@ function TeacherDashboard() {
   const viewDetails = async (session) => {
     setViewSession(session);
     setLoadingAttendance(true);
+    setFilterStatus("all");
     try {
       const data = await api.get(`/sessions/${session._id}`);
       setAttendance(data.attendance);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingAttendance(false);
-    }
+    } catch (err) { console.error(err); }
+    finally { setLoadingAttendance(false); }
   };
+
+  const filteredAttendance = filterStatus === "all"
+    ? attendance
+    : attendance.filter((a) => a.status === filterStatus);
 
   const activeSessions = sessions.filter((s) => s.isActive);
   const totalAttendance = sessions.reduce((acc, s) => acc + (s.attendanceCount || 0), 0);
+  const presentCount = attendance.filter((a) => a.status === "present").length;
+  const lateCount = attendance.filter((a) => a.status === "late").length;
 
   return (
     <div className="main">
       <div className="container">
-        <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 16 }}>
-          <div>
-            <h1 className="page-title">Teacher Dashboard</h1>
-            <p className="page-sub">Manage your class attendance sessions</p>
-          </div>
-          <button className="btn btn-primary" onClick={() => setShowCreate(true)}>+ New Session</button>
-        </div>
-
-        <div className="stats-grid">
-          <div className="stat-card">
-            <div className="stat-label">Total Sessions</div>
-            <div className="stat-value stat-accent">{sessions.length}</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-label">Active Now</div>
-            <div className="stat-value stat-green">{activeSessions.length}</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-label">Total Check-ins</div>
-            <div className="stat-value stat-yellow">{totalAttendance}</div>
-          </div>
-        </div>
-
         {viewSession ? (
-          <div>
-            <button className="btn btn-ghost btn-sm" style={{ marginBottom: 20 }} onClick={() => setViewSession(null)}>← Back to Sessions</button>
-            <div className="section-title">📋 {viewSession.subject} — Attendance List</div>
+          <>
+            {/* ── DETAIL VIEW ── */}
+            <div className="detail-header">
+              <button className="btn btn-ghost btn-sm detail-back" onClick={() => setViewSession(null)}>← Back</button>
+              <div className="detail-info">
+                <div className="detail-title">{viewSession.subject}</div>
+                <div className="detail-meta">
+                  {viewSession.room && <span>📍 {viewSession.room}</span>}
+                  <span>📅 Created {formatDate(viewSession.createdAt)}</span>
+                  {viewSession.startTime && <span>▶ Started {formatDateTime(viewSession.startTime)}</span>}
+                  {viewSession.endTime && <span>⏹ Ended {formatDateTime(viewSession.endTime)}</span>}
+                </div>
+              </div>
+            </div>
+
+            {/* Stats for this session */}
+            {!loadingAttendance && attendance.length > 0 && (
+              <div className="stats-grid" style={{ marginBottom: 20 }}>
+                <div className="stat-card" style={{ "--stat-color": "var(--accent)" }}>
+                  <div className="stat-label">Total</div>
+                  <div className="stat-value">{attendance.length}</div>
+                </div>
+                <div className="stat-card" style={{ "--stat-color": "var(--green)" }}>
+                  <div className="stat-label">Present</div>
+                  <div className="stat-value">{presentCount}</div>
+                </div>
+                <div className="stat-card" style={{ "--stat-color": "var(--yellow)" }}>
+                  <div className="stat-label">Late</div>
+                  <div className="stat-value">{lateCount}</div>
+                </div>
+                <div className="stat-card" style={{ "--stat-color": "var(--blue)" }}>
+                  <div className="stat-label">Rate</div>
+                  <div className="stat-value">{Math.round((presentCount / attendance.length) * 100)}%</div>
+                  <div className="stat-sub">on-time</div>
+                </div>
+              </div>
+            )}
+
+            <div className="section-header">
+              <div className="section-title">👥 Attendance Records</div>
+              <div className="export-bar">
+                {attendance.length > 0 && (
+                  <>
+                    <div className="history-filters" style={{ margin: 0 }}>
+                      {["all", "present", "late"].map((f) => (
+                        <span key={f} className={`filter-chip ${filterStatus === f ? "active" : ""}`} onClick={() => setFilterStatus(f)}>
+                          {f === "all" ? "All" : f === "present" ? "✓ Present" : "⏰ Late"}
+                          {f === "all" ? ` (${attendance.length})` : f === "present" ? ` (${presentCount})` : ` (${lateCount})`}
+                        </span>
+                      ))}
+                    </div>
+                    <button
+                      className="btn btn-excel btn-sm"
+                      onClick={() => exportToExcel(filteredAttendance, viewSession)}
+                    >
+                      ⬇ Export Excel
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
             {loadingAttendance ? (
-              <div className="loading-page"><Spinner /></div>
-            ) : attendance.length === 0 ? (
-              <div className="empty"><div className="empty-icon">📭</div><div className="empty-text">No attendance records yet</div></div>
+              <div className="loading-page"><Spinner size={28} /></div>
+            ) : filteredAttendance.length === 0 ? (
+              <div className="empty">
+                <div className="empty-icon">📭</div>
+                <div className="empty-text">{attendance.length === 0 ? "No attendance records for this session yet." : "No records match this filter."}</div>
+              </div>
             ) : (
               <div className="table-wrapper">
                 <table>
@@ -601,60 +832,99 @@ function TeacherDashboard() {
                       <th>Student</th>
                       <th>Student ID</th>
                       <th>Status</th>
+                      <th>Date</th>
                       <th>Time</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {attendance.map((a) => (
-                      <tr key={a._id}>
-                        <td>
-                          <span className="avatar">{a.student.name[0]}</span>
-                          {a.student.name}
-                        </td>
-                        <td style={{ color: "var(--muted)" }}>{a.student.studentId}</td>
-                        <td><span className={`badge badge-${a.status}`}>{a.status === "present" ? "✓ Present" : "⏰ Late"}</span></td>
-                        <td style={{ color: "var(--muted)", fontSize: "0.82rem" }}>{new Date(a.timestamp).toLocaleTimeString()}</td>
-                      </tr>
-                    ))}
+                    {filteredAttendance.map((a) => {
+                      const ts = new Date(a.timestamp);
+                      return (
+                        <tr key={a._id}>
+                          <td className="td-name">
+                            <span className="avatar">{a.student?.name?.[0]?.toUpperCase()}</span>
+                            {a.student?.name}
+                          </td>
+                          <td>{a.student?.studentId || "—"}</td>
+                          <td><span className={`badge badge-${a.status}`}>{a.status === "present" ? "✓ Present" : "⏰ Late"}</span></td>
+                          <td>{ts.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
+                          <td>{ts.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             )}
-          </div>
-        ) : loading ? (
-          <div className="loading-page"><Spinner /></div>
-        ) : sessions.length === 0 ? (
-          <div className="empty">
-            <div className="empty-icon">📋</div>
-            <div className="empty-text">No sessions yet. Create your first session to get started.</div>
-          </div>
+          </>
         ) : (
-          <div className="sessions-grid">
-            {sessions.map((session) => (
-              <div key={session._id} className="session-card">
-                <div className={`session-icon ${session.isActive ? "active" : "inactive"}`}>
-                  {session.isActive ? "🟢" : "📚"}
-                </div>
-                <div className="session-info">
-                  <div className="session-subject">{session.subject}</div>
-                  <div className="session-meta">
-                    {session.room && <span>📍 {session.room}</span>}
-                    <span>👥 {session.attendanceCount || 0} attended</span>
-                    <span>{new Date(session.createdAt).toLocaleDateString()}</span>
-                    {session.isActive && <span className="badge badge-active">● Live</span>}
-                  </div>
-                </div>
-                <div className="session-actions">
-                  {session.isActive ? (
-                    <button className="btn btn-green btn-sm" onClick={() => handleStart(session._id)}>📱 Show QR</button>
-                  ) : (
-                    <button className="btn btn-primary btn-sm" onClick={() => handleStart(session._id)}>▶ Start</button>
-                  )}
-                  <button className="btn btn-ghost btn-sm" onClick={() => viewDetails(session)}>View List</button>
-                </div>
+          <>
+            {/* ── SESSION LIST VIEW ── */}
+            <div className="page-header">
+              <div className="page-title-block">
+                <h1 className="page-title">Teacher Dashboard</h1>
+                <p className="page-sub">Manage your class attendance sessions</p>
               </div>
-            ))}
-          </div>
+              <button className="btn btn-primary" onClick={() => setShowCreate(true)}>+ New Session</button>
+            </div>
+
+            <div className="stats-grid">
+              <div className="stat-card" style={{ "--stat-color": "var(--accent)" }}>
+                <div className="stat-label">Total Sessions</div>
+                <div className="stat-value">{sessions.length}</div>
+              </div>
+              <div className="stat-card" style={{ "--stat-color": "var(--green)" }}>
+                <div className="stat-label">Active Now</div>
+                <div className="stat-value">{activeSessions.length}</div>
+              </div>
+              <div className="stat-card" style={{ "--stat-color": "var(--yellow)" }}>
+                <div className="stat-label">Total Check-ins</div>
+                <div className="stat-value">{totalAttendance}</div>
+              </div>
+            </div>
+
+            <div className="section-header">
+              <div className="section-title">📚 Sessions</div>
+            </div>
+
+            {loading ? (
+              <div className="loading-page"><Spinner size={28} /></div>
+            ) : sessions.length === 0 ? (
+              <div className="empty">
+                <div className="empty-icon">📋</div>
+                <div className="empty-text">No sessions yet.<br />Create your first session to get started.</div>
+              </div>
+            ) : (
+              <div className="sessions-grid">
+                {sessions.map((session) => (
+                  <div key={session._id} className="session-card">
+                    <div className={`session-icon ${session.isActive ? "active" : "inactive"}`}>
+                      {session.isActive ? "🟢" : "📚"}
+                    </div>
+                    <div className="session-info">
+                      <div className="session-subject">{session.subject}</div>
+                      <div className="session-meta">
+                        {session.room && <span>📍 {session.room}</span>}
+                        <span>👥 {session.attendanceCount || 0} attended</span>
+                        <span>📅 {formatDate(session.createdAt)}</span>
+                        {session.startTime && <span>▶ {formatDateTime(session.startTime)}</span>}
+                        {session.isActive && <span className="badge badge-active">● Live</span>}
+                        <SessionEndLabel endTime={session.endTime} />
+                      </div>
+                    </div>
+                    <div className="session-actions">
+                      {session.isActive ? (
+                        <button className="btn btn-green btn-sm" onClick={() => handleStart(session._id)}>📱 Show QR</button>
+                      ) : (
+                        <button className="btn btn-primary btn-sm" onClick={() => handleStart(session._id)}>▶ Start</button>
+                      )}
+                      <button className="btn btn-ghost btn-sm" onClick={() => viewDetails(session)}>View List</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -677,10 +947,10 @@ function TeacherDashboard() {
   );
 }
 
-// ─── STUDENT CHECK-IN PAGE ────────────────────────────────────────────────────
+// ─── STUDENT CHECK-IN ─────────────────────────────────────────────────────────
 function CheckInPage({ token }) {
   const [sessionInfo, setSessionInfo] = useState(null);
-  const [status, setStatus] = useState("verifying"); // verifying | ready | loading | success | error | already
+  const [status, setStatus] = useState("verifying");
   const [message, setMessage] = useState("");
   const { user } = useAuth();
 
@@ -690,10 +960,7 @@ function CheckInPage({ token }) {
         const data = await api.get(`/attendance/verify/${token}`);
         setSessionInfo(data.session);
         setStatus(data.alreadyAttended ? "already" : "ready");
-      } catch (err) {
-        setStatus("error");
-        setMessage(err.message);
-      }
+      } catch (err) { setStatus("error"); setMessage(err.message); }
     };
     if (token) verify();
     else { setStatus("error"); setMessage("No QR token provided."); }
@@ -705,59 +972,59 @@ function CheckInPage({ token }) {
       const data = await api.post("/attendance/checkin", { token });
       setMessage(data.message);
       setStatus("success");
-    } catch (err) {
-      setMessage(err.message);
-      setStatus("error");
-    }
+    } catch (err) { setMessage(err.message); setStatus("error"); }
   };
 
   return (
     <div className="checkin-page">
       <div className="checkin-card">
         {status === "verifying" && (
-          <>
-            <div className="loading-page"><Spinner /></div>
-            <p style={{ textAlign: "center", color: "var(--muted)", marginTop: 12 }}>Verifying QR code...</p>
-          </>
+          <div className="card" style={{ textAlign: "center" }}>
+            <div className="loading-page"><Spinner size={28} /></div>
+            <p style={{ color: "var(--muted)", marginTop: 8, fontSize: "0.88rem" }}>Verifying QR code…</p>
+          </div>
         )}
         {status === "ready" && sessionInfo && (
           <div className="card">
             <span className="checkin-icon">📋</span>
             <h2 className="checkin-title">{sessionInfo.subject}</h2>
-            <p className="checkin-sub">
-              {sessionInfo.room && `📍 ${sessionInfo.room} · `}
-              {sessionInfo.teacher && `👨‍🏫 ${sessionInfo.teacher}`}
+            <p className="checkin-sub">Confirm your attendance below</p>
+            {sessionInfo.room && <div className="checkin-info-row">📍 {sessionInfo.room}</div>}
+            {sessionInfo.teacher && <div className="checkin-info-row">👨‍🏫 {sessionInfo.teacher}</div>}
+            <div className="checkin-info-row" style={{ marginBottom: 24 }}>📅 {formatDateTime(new Date())}</div>
+            <p style={{ color: "var(--text-dim)", marginBottom: 22, fontSize: "0.88rem" }}>
+              Hi <b style={{ color: "var(--text)" }}>{user?.name}</b> — tap below to mark attendance.
             </p>
-            <p style={{ color: "var(--muted)", marginBottom: 24, fontSize: "0.9rem" }}>
-              Hi <b style={{ color: "var(--text)" }}>{user?.name}</b>! Tap below to mark your attendance.
-            </p>
-            <button className="btn btn-green btn-lg" style={{ width: "100%", justifyContent: "center" }} onClick={handleCheckIn}>
+            <button className="btn btn-green btn-lg" style={{ width: "100%" }} onClick={handleCheckIn}>
               ✓ Mark Attendance
             </button>
           </div>
         )}
         {status === "loading" && (
-          <div className="loading-page"><Spinner /></div>
+          <div className="card" style={{ textAlign: "center" }}>
+            <div className="loading-page"><Spinner size={28} /></div>
+          </div>
         )}
         {status === "success" && (
           <div className="success-card">
             <span className="checkin-icon">✅</span>
             <h2 className="checkin-title" style={{ color: "var(--green)" }}>Attendance Marked!</h2>
-            <p style={{ color: "var(--muted)" }}>{message}</p>
+            <p style={{ color: "var(--text-dim)" }}>{message}</p>
+            <p style={{ color: "var(--muted)", fontSize: "0.8rem", marginTop: 8 }}>{formatDateTime(new Date())}</p>
           </div>
         )}
         {status === "already" && (
-          <div className="success-card">
+          <div className="already-card">
             <span className="checkin-icon">🔄</span>
-            <h2 className="checkin-title">Already Marked</h2>
-            <p style={{ color: "var(--muted)" }}>You've already marked attendance for this session.</p>
+            <h2 className="checkin-title" style={{ color: "var(--blue)" }}>Already Marked</h2>
+            <p style={{ color: "var(--text-dim)" }}>You've already marked attendance for this session.</p>
           </div>
         )}
         {status === "error" && (
           <div className="error-card">
             <span className="checkin-icon">❌</span>
             <h2 className="checkin-title" style={{ color: "var(--accent2)" }}>Check-in Failed</h2>
-            <p style={{ color: "var(--muted)" }}>{message}</p>
+            <p style={{ color: "var(--text-dim)" }}>{message}</p>
           </div>
         )}
       </div>
@@ -767,76 +1034,147 @@ function CheckInPage({ token }) {
 
 // ─── STUDENT DASHBOARD ────────────────────────────────────────────────────────
 function StudentDashboard() {
+  const { user } = useAuth();
   const [attendance, setAttendance] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
-    const fetch = async () => {
+    const fetchData = async () => {
       try {
         const data = await api.get("/attendance/my");
         setAttendance(data.attendance);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
+      } catch (err) { console.error(err); }
+      finally { setLoading(false); }
     };
-    fetch();
+    fetchData();
   }, []);
 
   const present = attendance.filter((a) => a.status === "present").length;
   const late = attendance.filter((a) => a.status === "late").length;
+  const rate = attendance.length > 0 ? Math.round((present / attendance.length) * 100) : 0;
+
+  const filtered = attendance.filter((a) => {
+    const matchStatus = filterStatus === "all" || a.status === filterStatus;
+    const matchSearch = !searchQuery || a.session?.subject?.toLowerCase().includes(searchQuery.toLowerCase()) || a.session?.room?.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchStatus && matchSearch;
+  });
+
+  // Group by month for display
+  const grouped = filtered.reduce((acc, a) => {
+    const month = new Date(a.timestamp).toLocaleString("en-US", { month: "long", year: "numeric" });
+    if (!acc[month]) acc[month] = [];
+    acc[month].push(a);
+    return acc;
+  }, {});
 
   return (
     <div className="main">
       <div className="container">
         <div className="page-header">
-          <h1 className="page-title">My Attendance</h1>
-          <p className="page-sub">Track your class attendance history</p>
+          <div className="page-title-block">
+            <h1 className="page-title">My Attendance</h1>
+            <p className="page-sub">Track your class attendance history</p>
+          </div>
+          {attendance.length > 0 && (
+            <button className="btn btn-excel btn-sm" onClick={() => exportStudentHistoryToExcel(filtered, user?.name)}>
+              ⬇ Export to Excel
+            </button>
+          )}
         </div>
 
         <div className="stats-grid">
-          <div className="stat-card">
+          <div className="stat-card" style={{ "--stat-color": "var(--accent)" }}>
             <div className="stat-label">Total Sessions</div>
-            <div className="stat-value stat-accent">{attendance.length}</div>
+            <div className="stat-value">{attendance.length}</div>
           </div>
-          <div className="stat-card">
+          <div className="stat-card" style={{ "--stat-color": "var(--green)" }}>
             <div className="stat-label">On Time</div>
-            <div className="stat-value stat-green">{present}</div>
+            <div className="stat-value">{present}</div>
           </div>
-          <div className="stat-card">
+          <div className="stat-card" style={{ "--stat-color": "var(--yellow)" }}>
             <div className="stat-label">Late</div>
-            <div className="stat-value stat-yellow">{late}</div>
+            <div className="stat-value">{late}</div>
+          </div>
+          <div className="stat-card" style={{ "--stat-color": "var(--blue)" }}>
+            <div className="stat-label">Attendance Rate</div>
+            <div className="stat-value">{rate}%</div>
+            <div className="stat-sub">on-time ratio</div>
           </div>
         </div>
 
-        <div className="section-title">📅 Attendance History</div>
+        <div className="section-header">
+          <div className="section-title">📅 History</div>
+          <div className="export-info">{filtered.length} record{filtered.length !== 1 ? "s" : ""}</div>
+        </div>
 
-        {loading ? (
-          <div className="loading-page"><Spinner /></div>
-        ) : attendance.length === 0 ? (
-          <div className="empty">
-            <div className="empty-icon">📭</div>
-            <div className="empty-text">No attendance records yet. Scan a QR code to mark your attendance!</div>
-          </div>
-        ) : (
-          <div className="history-list">
-            {attendance.map((a) => (
-              <div key={a._id} className="history-item">
-                <div className={`history-dot ${a.status}`} />
-                <div className="history-body">
-                  <div className="history-subject">{a.session?.subject || "Unknown Subject"}</div>
-                  <div className="history-meta">
-                    {a.session?.room && `📍 ${a.session.room} · `}
-                    {new Date(a.timestamp).toLocaleString()}
-                  </div>
-                </div>
-                <span className={`badge badge-${a.status}`}>
-                  {a.status === "present" ? "✓ Present" : "⏰ Late"}
-                </span>
-              </div>
+        {/* Filters & Search */}
+        <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
+          <div className="history-filters" style={{ margin: 0, flex: 1, minWidth: 200 }}>
+            {["all", "present", "late"].map((f) => (
+              <span key={f} className={`filter-chip ${filterStatus === f ? "active" : ""}`} onClick={() => setFilterStatus(f)}>
+                {f === "all" ? `All (${attendance.length})` : f === "present" ? `✓ Present (${present})` : `⏰ Late (${late})`}
+              </span>
             ))}
           </div>
+          <input
+            className="form-input"
+            style={{ maxWidth: 220, padding: "7px 12px", fontSize: "0.82rem" }}
+            placeholder="Search subject…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+
+        {loading ? (
+          <div className="loading-page"><Spinner size={28} /></div>
+        ) : filtered.length === 0 ? (
+          <div className="empty">
+            <div className="empty-icon">{attendance.length === 0 ? "📭" : "🔍"}</div>
+            <div className="empty-text">
+              {attendance.length === 0
+                ? "No attendance records yet.\nScan a QR code to mark your attendance!"
+                : "No records match your filters."}
+            </div>
+          </div>
+        ) : (
+          Object.entries(grouped).map(([month, records]) => (
+            <div key={month} style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                <span>{month}</span>
+                <span style={{ background: "var(--surface2)", borderRadius: 20, padding: "1px 8px", fontWeight: 600 }}>{records.length}</span>
+              </div>
+              <div className="history-list">
+                {records.map((a) => {
+                  const ts = new Date(a.timestamp);
+                  return (
+                    <div key={a._id} className="history-item">
+                      <div className={`history-dot ${a.status}`} />
+                      <div className="history-body">
+                        <div className="history-subject">{a.session?.subject || "Unknown Subject"}</div>
+                        <div className="history-meta">
+                          {a.session?.room && <span>📍 {a.session.room}</span>}
+                          {a.session?.teacher?.name && <span>👨‍🏫 {a.session.teacher.name}</span>}
+                        </div>
+                      </div>
+                      <div className="history-side">
+                        <div style={{ textAlign: "right" }}>
+                          <span className={`badge badge-${a.status}`} style={{ marginBottom: 6, display: "inline-flex" }}>
+                            {a.status === "present" ? "✓ Present" : "⏰ Late"}
+                          </span>
+                          <div className="history-date">
+                            <div className="history-date-main">{ts.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</div>
+                            <div className="history-date-time">{ts.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))
         )}
       </div>
     </div>
@@ -849,7 +1187,6 @@ function App() {
   const [page, setPage] = useState("home");
   const [qrToken, setQrToken] = useState(null);
 
-  // Parse URL for checkin token
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get("token");
