@@ -72,8 +72,11 @@ const checkIn = async (req, res) => {
 const getMyAttendance = async (req, res) => {
   try {
     const attendance = await Attendance.find({ student: req.user._id })
-      .populate("session", "subject room startTime teacher")
-      .populate({ path: "session", populate: { path: "teacher", select: "name" } })
+      .populate({
+        path: "session",
+        select: "subject room startTime teacher",
+        populate: { path: "teacher", select: "name" },
+      })
       .sort({ timestamp: -1 });
 
     res.json({ success: true, attendance });

@@ -6,12 +6,23 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 
 const generateToken = (id) => jwt.sign({ id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 
+// Helper — build the user payload returned in responses
+const userPayload = (user) => ({
+  id: user._id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  studentId: user.studentId,
+  grade: user.grade,       // ← NEW
+  section: user.section,   // ← NEW
+});
+
 // @desc    Register user
 // @route   POST /api/auth/register
 // @access  Public
 const register = async (req, res) => {
   try {
-    const { name, email, password, role, studentId } = req.body;
+    const { name, email, password, role, studentId, grade, section } = req.body; // ← added grade, section
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -24,14 +35,23 @@ const register = async (req, res) => {
       return res.status(400).json({ success: false, message: "Student ID is required for students." });
     }
 
-    const user = await User.create({ name, email, password, role: role || "student", studentId });
+    const user = await User.create({
+      name,
+      email,
+      password,
+      role: role || "student",
+      studentId,
+      grade: role === "student" ? grade : undefined,     // ← NEW (only for students)
+      section: role === "student" ? section : undefined, // ← NEW (only for students)
+    });
+
     const token = generateToken(user._id);
 
     res.status(201).json({
       success: true,
       message: "Registration successful!",
       token,
-      user: { id: user._id, name: user.name, email: user.email, role: user.role, studentId: user.studentId },
+      user: userPayload(user),
     });
   } catch (error) {
     if (error.name === "ValidationError") {
@@ -64,7 +84,7 @@ const login = async (req, res) => {
       success: true,
       message: "Login successful!",
       token,
-      user: { id: user._id, name: user.name, email: user.email, role: user.role, studentId: user.studentId },
+      user: userPayload(user), // ← now includes grade & section
     });
   } catch (error) {
     res.status(500).json({ success: false, message: "Server error. Please try again." });
@@ -77,7 +97,7 @@ const login = async (req, res) => {
 const getMe = async (req, res) => {
   res.json({
     success: true,
-    user: { id: req.user._id, name: req.user.name, email: req.user.email, role: req.user.role, studentId: req.user.studentId },
+    user: userPayload(req.user), // ← now includes grade & section
   });
 };
 
