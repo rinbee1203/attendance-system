@@ -63,27 +63,51 @@ function AuthProvider({ children }) {
 
 // ─── EXCEL EXPORT UTILITY ─────────────────────────────────────────────────────
 function exportToExcel(attendance, sessionInfo) {
-  // Build CSV with BOM for Excel compatibility
   const bom = "\uFEFF";
-  const headers = ["Student Name", "Student ID", "Status", "Date", "Time", "Subject", "Room", "IP Address"];
 
-  const rows = attendance.map((a) => {
+  // Title / metadata rows at top of sheet
+  const titleRows = [
+    [`"Attendance Report"`],
+    [`"Session:", "${sessionInfo?.subject || "N/A"}"`],
+    [`"Room:", "${sessionInfo?.room || "N/A"}"`],
+    [`"Date Exported:", "${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}"`],
+    [`"Total Records:", "${attendance.length}"`],
+    [`""`], // blank spacer
+  ];
+
+  const headers = ["No.", "Student Name", "Student ID", "Grade", "Section", "Sessions Attended", "Status", "Date", "Time"];
+
+  // Count per-student attendance appearances in this list
+  const countByStudent = attendance.reduce((acc, a) => {
+    const key = a.student?._id || a.student?.studentId || a.student?.name || "?";
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+
+  const rows = attendance.map((a, i) => {
     const ts = new Date(a.timestamp);
+    const key = a.student?._id || a.student?.studentId || a.student?.name || "?";
     return [
+      i + 1,
       a.student?.name || "N/A",
       a.student?.studentId || "N/A",
+      a.student?.grade || "N/A",
+      a.student?.section || "N/A",
+      countByStudent[key] || 1,
       a.status === "present" ? "Present" : "Late",
       ts.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
       ts.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-      sessionInfo?.subject || "N/A",
-      sessionInfo?.room || "N/A",
-      a.ipAddress || "N/A",
     ];
   });
 
-  const csvContent = [headers, ...rows]
+  // Title rows are already quoted strings, data rows need escaping
+  const titleCsv = titleRows.map((row) => row.join(",")).join("\n");
+  const headerCsv = headers.map((h) => `"${h}"`).join(",");
+  const dataCsv = rows
     .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
     .join("\n");
+
+  const csvContent = [titleCsv, headerCsv, dataCsv].join("\n");
 
   const blob = new Blob([bom + csvContent], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -443,7 +467,7 @@ function Nav() {
 function AuthPage({ onSuccess }) {
   const [mode, setMode] = useState("login");
   const [role, setRole] = useState("student");
-  const [form, setForm] = useState({ name: "", email: "", password: "", studentId: "" });
+  const [form, setForm] = useState({ name: "", email: "", password: "", studentId: "", grade: "", section: "" });
   const [error, setError] = useState("");
   const { login, register, loading } = useAuth();
 
@@ -498,10 +522,22 @@ function AuthPage({ onSuccess }) {
             <input className="form-input" type="password" name="password" value={form.password} onChange={handleChange} placeholder="Min. 6 characters" required />
           </div>
           {mode === "register" && role === "student" && (
-            <div className="form-group">
-              <label className="form-label">Student ID</label>
-              <input className="form-input" name="studentId" value={form.studentId} onChange={handleChange} placeholder="e.g. 2021-12345" required />
-            </div>
+            <>
+              <div className="form-group">
+                <label className="form-label">Student ID</label>
+                <input className="form-input" name="studentId" value={form.studentId} onChange={handleChange} placeholder="e.g. 2021-12345" required />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Grade</label>
+                  <input className="form-input" name="grade" value={form.grade} onChange={handleChange} placeholder="e.g. Grade 11" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Section</label>
+                  <input className="form-input" name="section" value={form.section} onChange={handleChange} placeholder="e.g. Section A" />
+                </div>
+              </div>
+            </>
           )}
           <button type="submit" className="btn btn-primary btn-lg" style={{ width: "100%" }} disabled={loading}>
             {loading ? <Spinner /> : mode === "login" ? "Sign In" : "Create Account"}
@@ -829,29 +865,49 @@ function TeacherDashboard() {
                 <table>
                   <thead>
                     <tr>
-                      <th>Student</th>
+                      <th>#</th>
+                      <th>Student Name</th>
                       <th>Student ID</th>
+                      <th>Grade</th>
+                      <th>Section</th>
+                      <th>Sessions Attended</th>
                       <th>Status</th>
                       <th>Date</th>
                       <th>Time</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredAttendance.map((a) => {
-                      const ts = new Date(a.timestamp);
-                      return (
-                        <tr key={a._id}>
-                          <td className="td-name">
-                            <span className="avatar">{a.student?.name?.[0]?.toUpperCase()}</span>
-                            {a.student?.name}
-                          </td>
-                          <td>{a.student?.studentId || "—"}</td>
-                          <td><span className={`badge badge-${a.status}`}>{a.status === "present" ? "✓ Present" : "⏰ Late"}</span></td>
-                          <td>{ts.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
-                          <td>{ts.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</td>
-                        </tr>
-                      );
-                    })}
+                    {(() => {
+                      const countByStudent = filteredAttendance.reduce((acc, a) => {
+                        const key = a.student?._id || a.student?.studentId || a.student?.name || "?";
+                        acc[key] = (acc[key] || 0) + 1;
+                        return acc;
+                      }, {});
+                      return filteredAttendance.map((a, i) => {
+                        const ts = new Date(a.timestamp);
+                        const key = a.student?._id || a.student?.studentId || a.student?.name || "?";
+                        return (
+                          <tr key={a._id}>
+                            <td style={{ color: "var(--muted)", fontSize: "0.78rem" }}>{i + 1}</td>
+                            <td className="td-name">
+                              <span className="avatar">{a.student?.name?.[0]?.toUpperCase()}</span>
+                              {a.student?.name}
+                            </td>
+                            <td>{a.student?.studentId || "—"}</td>
+                            <td>{a.student?.grade || <span style={{ color: "var(--muted)" }}>—</span>}</td>
+                            <td>{a.student?.section || <span style={{ color: "var(--muted)" }}>—</span>}</td>
+                            <td style={{ textAlign: "center" }}>
+                              <span style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 20, padding: "2px 10px", fontSize: "0.78rem", fontWeight: 600 }}>
+                                {countByStudent[key] || 1}
+                              </span>
+                            </td>
+                            <td><span className={`badge badge-${a.status}`}>{a.status === "present" ? "✓ Present" : "⏰ Late"}</span></td>
+                            <td>{ts.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
+                            <td>{ts.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</td>
+                          </tr>
+                        );
+                      });
+                    })()}
                   </tbody>
                 </table>
               </div>

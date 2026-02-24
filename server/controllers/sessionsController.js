@@ -167,7 +167,8 @@ const getSession = async (req, res) => {
     }
 
     const attendance = await Attendance.find({ session: session._id })
-      .populate("student", "name email studentId")
+      // Populate grade and section alongside name, email, studentId
+      .populate("student", "name email studentId grade section")
       .sort({ timestamp: 1 });
 
     res.json({ success: true, session: session.toJSON(), attendance });

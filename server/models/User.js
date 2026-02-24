@@ -4,21 +4,14 @@ const bcrypt = require("bcryptjs");
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: [true, "Name is required"], trim: true },
-    email: {
-      type: String,
-      required: [true, "Email is required"],
-      unique: true,
-      lowercase: true,
-      trim: true,
-      match: [/^\S+@\S+\.\S+$/, "Please provide a valid email"],
-    },
+    email: { type: String, required: [true, "Email is required"], unique: true, lowercase: true, trim: true },
     password: { type: String, required: [true, "Password is required"], minlength: 6, select: false },
     role: { type: String, enum: ["student", "teacher"], default: "student" },
-    studentId: {
-      type: String,
-      trim: true,
-      required: function () { return this.role === "student"; },
-    },
+    studentId: { type: String, trim: true, sparse: true },
+
+    // Student classification fields
+    grade: { type: String, trim: true },    // e.g. "Grade 11", "Year 2", "11"
+    section: { type: String, trim: true },  // e.g. "Section A", "Rizal", "BSCS-2A"
   },
   { timestamps: true }
 );
@@ -30,7 +23,7 @@ userSchema.pre("save", async function (next) {
   next();
 });
 
-// Compare password method
+// Compare password
 userSchema.methods.comparePassword = async function (candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
