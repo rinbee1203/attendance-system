@@ -86,7 +86,7 @@ function exportToExcel(attendance, sessionInfo) {
 
   const rows = attendance.map((a, i) => {
     const ts = new Date(a.timestamp);
-    const key = a.student?._id || a.student?.studentId || a.student?.name || "?";
+    const key = a.student?._id || a.student?.studentId || a.student?.name || a.student?.grade || a.student?.section || "?";
     return [
       i + 1,
       a.student?.name || "N/A",
