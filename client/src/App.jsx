@@ -70,7 +70,7 @@ function exportToExcel(attendance, sessionInfo) {
     [`"Attendance Report"`],
     [`"Session:", "${sessionInfo?.subject || "N/A"}"`],
     [`"Room:", "${sessionInfo?.room || "N/A"}"`],
-    [`"Date Exported:", "${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}"`],
+    [`"Date Exported:", "${new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}"`],
     [`"Total Records:", "${attendance.length}"`],
     [`""`], // blank spacer
   ];
@@ -95,8 +95,8 @@ function exportToExcel(attendance, sessionInfo) {
       a.student?.section || "N/A",
       countByStudent[key] || 1,
       a.status === "present" ? "Present" : "Late",
-      ts.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
-      ts.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+      ts.toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" }),
+      ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
     ];
   });
 
@@ -130,8 +130,8 @@ function exportStudentHistoryToExcel(attendance, studentName) {
       a.session?.room || "N/A",
       a.session?.teacher?.name || "N/A",
       a.status === "present" ? "Present" : "Late",
-      ts.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
-      ts.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+      ts.toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" }),
+      ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" }),
     ];
   });
 
@@ -152,16 +152,16 @@ function exportStudentHistoryToExcel(attendance, studentName) {
 
 // ─── DATE HELPERS ─────────────────────────────────────────────────────────────
 function formatDate(date) {
-  return new Date(date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  return new Date(date).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" });
 }
 function formatDateTime(date) {
-  return new Date(date).toLocaleString("en-US", {
+  return new Date(date).toLocaleString("en-PH", {
     year: "numeric", month: "short", day: "numeric",
     hour: "2-digit", minute: "2-digit",
   });
 }
 function formatTime(date) {
-  return new Date(date).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  return new Date(date).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" });
 }
 function getDefaultEndDate() {
   const d = new Date();
@@ -902,8 +902,8 @@ function TeacherDashboard() {
                               </span>
                             </td>
                             <td><span className={`badge badge-${a.status}`}>{a.status === "present" ? "✓ Present" : "⏰ Late"}</span></td>
-                            <td>{ts.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
-                            <td>{ts.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</td>
+                            <td>{ts.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</td>
+                            <td>{ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</td>
                           </tr>
                         );
                       });
@@ -1119,7 +1119,7 @@ function StudentDashboard() {
 
   // Group by month for display
   const grouped = filtered.reduce((acc, a) => {
-    const month = new Date(a.timestamp).toLocaleString("en-US", { month: "long", year: "numeric" });
+    const month = new Date(a.timestamp).toLocaleString("en-PH", { month: "long", year: "numeric" });
     if (!acc[month]) acc[month] = [];
     acc[month].push(a);
     return acc;
@@ -1220,8 +1220,8 @@ function StudentDashboard() {
                             {a.status === "present" ? "✓ Present" : "⏰ Late"}
                           </span>
                           <div className="history-date">
-                            <div className="history-date-main">{ts.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</div>
-                            <div className="history-date-time">{ts.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</div>
+                            <div className="history-date-main">{ts.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</div>
+                            <div className="history-date-time">{ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}</div>
                           </div>
                         </div>
                       </div>
