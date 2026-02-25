@@ -192,4 +192,4 @@ const getSession = async (req, res) => {
   }
 };
 
-module.exports = { createSession, startSession, refreshQR, stopSession, getSessions, getSession };
+module.exports = { createSession, startSession, refreshQR, stopSession, getSessions, getSession, deleteSession };
