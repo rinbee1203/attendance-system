@@ -767,6 +767,14 @@ function TeacherDashboard() {
     fetchSessions();
   };
 
+  const handleDelete = async (sessionId, sessionSubject) => {
+    if (!window.confirm(`Delete "${sessionSubject}" and all its attendance records?\n\nThis cannot be undone.`)) return;
+    try {
+      await api.request(`/sessions/${sessionId}`, { method: "DELETE" });
+      setSessions((prev) => prev.filter((s) => s._id !== sessionId));
+    } catch (err) { alert(err.message); }
+  };
+
   const viewDetails = async (session) => {
     setViewSession(session);
     setLoadingAttendance(true);
@@ -975,6 +983,7 @@ function TeacherDashboard() {
                         <button className="btn btn-primary btn-sm" onClick={() => handleStart(session._id)}>▶ Start</button>
                       )}
                       <button className="btn btn-ghost btn-sm" onClick={() => viewDetails(session)}>View List</button>
+                      <button className="btn btn-danger btn-sm" onClick={() => handleDelete(session._id, session.subject)} disabled={session.isActive} title={session.isActive ? "Stop session before deleting" : "Delete session"}>🗑</button>
                     </div>
                   </div>
                 ))}

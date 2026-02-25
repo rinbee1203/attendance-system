@@ -167,4 +167,31 @@ const getSession = async (req, res) => {
   }
 };
 
-module.exports = { createSession, startSession, refreshQR, stopSession, getSessions, getSession };
+// @desc    Delete session and all its attendance records
+// @route   DELETE /api/sessions/:id
+// @access  Teacher only
+const deleteSession = async (req, res) => {
+  try {
+    const session = await Session.findOne({ _id: req.params.id, teacher: req.user._id });
+
+    if (!session) {
+      return res.status(404).json({ success: false, message: "Session not found." });
+    }
+
+    if (session.isActive) {
+      return res.status(400).json({ success: false, message: "Cannot delete an active session. Stop it first." });
+    }
+
+    // Delete all attendance records for this session
+    await Attendance.deleteMany({ session: session._id });
+
+    // Delete the session itself
+    await session.deleteOne();
+
+    res.json({ success: true, message: "Session and all attendance records deleted." });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to delete session." });
+  }
+};
+
+module.exports = { createSession, startSession, refreshQR, stopSession, getSessions, getSession, deleteSession };
