@@ -726,6 +726,133 @@ function SessionEndLabel({ endTime }) {
   return <span className={cls}>📅 {text}</span>;
 }
 
+// ─── ATTENDANCE ACCORDION (Month → Day → Table) ───────────────────────────────
+function AttendanceAccordion({ records }) {
+  const grouped = records.reduce((acc, a) => {
+    const ts = new Date(a.timestamp);
+    const monthKey = ts.toLocaleDateString("en-PH", { year: "numeric", month: "long", timeZone: "Asia/Manila" });
+    const dayKey   = ts.toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Manila" });
+    if (!acc[monthKey]) acc[monthKey] = {};
+    if (!acc[monthKey][dayKey]) acc[monthKey][dayKey] = [];
+    acc[monthKey][dayKey].push(a);
+    return acc;
+  }, {});
+
+  const months = Object.keys(grouped);
+  const [openMonth, setOpenMonth] = useState(months[months.length - 1] || null);
+  const [openDays, setOpenDays] = useState(() => {
+    const lastMonth = months[months.length - 1];
+    if (!lastMonth) return {};
+    const days = Object.keys(grouped[lastMonth]);
+    return { [days[days.length - 1]]: true };
+  });
+
+  const toggleMonth = (month) => setOpenMonth((prev) => prev === month ? null : month);
+  const toggleDay   = (day)   => setOpenDays((prev) => ({ ...prev, [day]: !prev[day] }));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {months.map((month) => {
+        const days = Object.keys(grouped[month]);
+        const monthTotal = days.reduce((sum, d) => sum + grouped[month][d].length, 0);
+        const isMonthOpen = openMonth === month;
+
+        return (
+          <div key={month} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", overflow: "hidden" }}>
+            {/* Month Header */}
+            <div
+              onClick={() => toggleMonth(month)}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 18px", background: "var(--surface2)", cursor: "pointer", userSelect: "none" }}
+              onMouseEnter={e => e.currentTarget.style.background = "var(--surface3)"}
+              onMouseLeave={e => e.currentTarget.style.background = "var(--surface2)"}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: "1rem" }}>📆</span>
+                <span style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: "0.95rem" }}>{month}</span>
+                <span style={{ background: "var(--surface3)", border: "1px solid var(--border)", borderRadius: 20, padding: "1px 10px", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-dim)" }}>
+                  {days.length} day{days.length !== 1 ? "s" : ""} · {monthTotal} record{monthTotal !== 1 ? "s" : ""}
+                </span>
+              </div>
+              <span style={{ color: "var(--muted)", fontSize: "0.85rem", display: "inline-block", transform: isMonthOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>▼</span>
+            </div>
+
+            {/* Days inside Month */}
+            {isMonthOpen && (
+              <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8, background: "var(--surface)" }}>
+                {days.map((day) => {
+                  const dayRecords = grouped[month][day];
+                  const isDayOpen  = !!openDays[day];
+                  const presentN   = dayRecords.filter(r => r.status === "present").length;
+                  const lateN      = dayRecords.filter(r => r.status === "late").length;
+
+                  return (
+                    <div key={day} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
+                      {/* Day Header */}
+                      <div
+                        onClick={() => toggleDay(day)}
+                        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "var(--surface2)", cursor: "pointer", userSelect: "none" }}
+                        onMouseEnter={e => e.currentTarget.style.background = "var(--surface3)"}
+                        onMouseLeave={e => e.currentTarget.style.background = "var(--surface2)"}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: "0.85rem" }}>📅</span>
+                          <span style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text)" }}>{day}</span>
+                          <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>{dayRecords.length} student{dayRecords.length !== 1 ? "s" : ""}</span>
+                          {presentN > 0 && <span style={{ fontSize: "0.72rem", background: "rgba(0,214,143,0.1)", color: "var(--green)", border: "1px solid rgba(0,214,143,0.2)", borderRadius: 20, padding: "1px 8px", fontWeight: 600 }}>✓ {presentN} Present</span>}
+                          {lateN   > 0 && <span style={{ fontSize: "0.72rem", background: "rgba(255,186,8,0.1)", color: "var(--yellow)", border: "1px solid rgba(255,186,8,0.2)", borderRadius: 20, padding: "1px 8px", fontWeight: 600 }}>⏰ {lateN} Late</span>}
+                        </div>
+                        <span style={{ color: "var(--muted)", fontSize: "0.8rem", display: "inline-block", transform: isDayOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>▼</span>
+                      </div>
+
+                      {/* Day Table */}
+                      {isDayOpen && (
+                        <div className="table-wrapper" style={{ borderRadius: 0, border: "none", borderTop: "1px solid var(--border)" }}>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>#</th>
+                                <th>Student Name</th>
+                                <th>Student ID</th>
+                                <th>Grade</th>
+                                <th>Section</th>
+                                <th>Status</th>
+                                <th>Time</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {dayRecords.map((a, i) => {
+                                const ts = new Date(a.timestamp);
+                                return (
+                                  <tr key={a._id}>
+                                    <td style={{ color: "var(--muted)", fontSize: "0.78rem" }}>{i + 1}</td>
+                                    <td className="td-name">
+                                      <span className="avatar">{a.student?.name?.[0]?.toUpperCase()}</span>
+                                      {a.student?.name}
+                                    </td>
+                                    <td>{a.student?.studentId || "—"}</td>
+                                    <td>{a.student?.grade || <span style={{ color: "var(--muted)" }}>—</span>}</td>
+                                    <td>{a.student?.section || <span style={{ color: "var(--muted)" }}>—</span>}</td>
+                                    <td><span className={`badge badge-${a.status}`}>{a.status === "present" ? "✓ Present" : "⏰ Late"}</span></td>
+                                    <td>{ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Manila" })}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── TEACHER DASHBOARD ────────────────────────────────────────────────────────
 function TeacherDashboard() {
   const [sessions, setSessions] = useState([]);
@@ -881,56 +1008,7 @@ function TeacherDashboard() {
                 <div className="empty-text">{attendance.length === 0 ? "No attendance records for this session yet." : "No records match this filter."}</div>
               </div>
             ) : (
-              <div className="table-wrapper">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Student Name</th>
-                      <th>Student ID</th>
-                      <th>Grade</th>
-                      <th>Section</th>
-                      <th>Sessions Attended</th>
-                      <th>Status</th>
-                      <th>Date</th>
-                      <th>Time</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(() => {
-                      const countByStudent = filteredAttendance.reduce((acc, a) => {
-                        const key = a.student?._id || a.student?.studentId || a.student?.name || "?";
-                        acc[key] = (acc[key] || 0) + 1;
-                        return acc;
-                      }, {});
-                      return filteredAttendance.map((a, i) => {
-                        const ts = new Date(a.timestamp);
-                        const key = a.student?._id || a.student?.studentId || a.student?.name || "?";
-                        return (
-                          <tr key={a._id}>
-                            <td style={{ color: "var(--muted)", fontSize: "0.78rem" }}>{i + 1}</td>
-                            <td className="td-name">
-                              <span className="avatar">{a.student?.name?.[0]?.toUpperCase()}</span>
-                              {a.student?.name}
-                            </td>
-                            <td>{a.student?.studentId || "—"}</td>
-                            <td>{a.student?.grade || <span style={{ color: "var(--muted)" }}>—</span>}</td>
-                            <td>{a.student?.section || <span style={{ color: "var(--muted)" }}>—</span>}</td>
-                            <td style={{ textAlign: "center" }}>
-                              <span style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 20, padding: "2px 10px", fontSize: "0.78rem", fontWeight: 600 }}>
-                                {countByStudent[key] || 1}
-                              </span>
-                            </td>
-                            <td><span className={`badge badge-${a.status}`}>{a.status === "present" ? "✓ Present" : "⏰ Late"}</span></td>
-                            <td>{ts.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila" })}</td>
-                            <td>{ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Manila" })}</td>
-                          </tr>
-                        );
-                      });
-                    })()}
-                  </tbody>
-                </table>
-              </div>
+              <AttendanceAccordion records={filteredAttendance} />
             )}
           </>
         ) : (
