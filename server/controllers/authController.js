@@ -101,22 +101,34 @@ const getMe = async (req, res) => {
   });
 };
 
-// @desc    Update teacher profile (name and/or password)
+// @desc    Update profile (name, password, grade, section, profilePicture)
 // @route   PATCH /api/auth/profile
-// @access  Private (teacher only)
+// @access  Private (teacher + student)
 const updateProfile = async (req, res) => {
   try {
-    const { name, currentPassword, newPassword } = req.body;
+    const { name, currentPassword, newPassword, grade, section, profilePicture } = req.body;
 
     const user = await User.findById(req.user._id).select("+password");
     if (!user) return res.status(404).json({ success: false, message: "User not found." });
 
-    // Update name if provided
-    if (name && name.trim()) {
-      user.name = name.trim();
+    // Update name
+    if (name && name.trim()) user.name = name.trim();
+
+    // Student-only fields
+    if (user.role === "student") {
+      if (grade !== undefined) user.grade = grade;
+      if (section !== undefined) user.section = section;
     }
 
-    // Update password if provided
+    // Profile picture (Base64, max ~2MB)
+    if (profilePicture !== undefined) {
+      if (profilePicture && profilePicture.length > 2 * 1024 * 1024 * 1.37) {
+        return res.status(400).json({ success: false, message: "Image too large. Please use an image under 2MB." });
+      }
+      user.profilePicture = profilePicture || null;
+    }
+
+    // Password change
     if (newPassword) {
       if (!currentPassword) {
         return res.status(400).json({ success: false, message: "Current password is required to set a new password." });

@@ -12,6 +12,9 @@ const userSchema = new mongoose.Schema(
     // Student classification fields
     grade: { type: String, trim: true },    // e.g. "Grade 11", "Year 2", "11"
     section: { type: String, trim: true },  // e.g. "Section A", "Rizal", "BSCS-2A"
+
+    // Profile picture stored as Base64 string
+    profilePicture: { type: String, default: null },
   },
   { timestamps: true }
 );
