@@ -307,6 +307,7 @@ const styles = `
   .session-icon { width: 44px; height: 44px; border-radius: 11px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; flex-shrink: 0; }
   .session-icon.active { background: rgba(0,214,143,0.1); border: 1px solid rgba(0,214,143,0.2); }
   .session-icon.inactive { background: var(--surface2); border: 1px solid var(--border); }
+  .session-icon.expired-icon { background: rgba(255,101,132,0.08); border: 1px solid rgba(255,101,132,0.2); }
   .session-info { flex: 1; min-width: 0; }
   .session-subject { font-family: var(--font-heading); font-weight: 700; font-size: 1rem; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .session-meta { font-size: 0.78rem; color: var(--text-dim); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
@@ -717,13 +718,19 @@ function SessionEndLabel({ expiresAt }) {
   const now = new Date();
   const diffDays = Math.ceil((end - now) / (1000 * 60 * 60 * 24));
 
-  let cls = "session-enddate";
-  let text = "";
-  if (diffDays < 0) { cls += " expired"; text = "Expired"; }
-  else if (diffDays <= 14) { cls += " soon"; text = `Expires in ${diffDays}d`; }
-  else { text = `Until ${formatDate(end)}`; }
+  if (diffDays < 0) {
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(255,101,132,0.12)", color: "#ff8fa3", border: "1px solid rgba(255,101,132,0.3)", borderRadius: 20, padding: "2px 10px", fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.02em" }}>
+        🔒 Expired
+      </span>
+    );
+  }
+  if (diffDays <= 14) return <span className="session-enddate soon">⚠ Expires in {diffDays}d</span>;
+  return <span className="session-enddate">📅 Until {formatDate(end)}</span>;
+}
 
-  return <span className={cls}>📅 {text}</span>;
+function isExpired(session) {
+  return session.expiresAt && new Date() > new Date(session.expiresAt);
 }
 
 // ─── ATTENDANCE ACCORDION (Month → Day → Table) ───────────────────────────────
@@ -1061,8 +1068,8 @@ function TeacherDashboard() {
               <div className="sessions-grid">
                 {sessions.map((session) => (
                   <div key={session._id} className="session-card">
-                    <div className={`session-icon ${session.isActive ? "active" : "inactive"}`}>
-                      {session.isActive ? "🟢" : "📚"}
+                    <div className={`session-icon ${session.isActive ? "active" : isExpired(session) ? "expired-icon" : "inactive"}`}>
+                      {session.isActive ? "🟢" : isExpired(session) ? "🔒" : "📚"}
                     </div>
                     <div className="session-info">
                       <div className="session-subject">{session.subject}</div>
@@ -1076,7 +1083,11 @@ function TeacherDashboard() {
                       </div>
                     </div>
                     <div className="session-actions">
-                      {session.isActive ? (
+                      {isExpired(session) ? (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(255,101,132,0.08)", color: "#ff8fa3", border: "1px solid rgba(255,101,132,0.2)", borderRadius: "var(--radius-sm)", padding: "6px 12px", fontSize: "0.8rem", fontWeight: 600 }}>
+                          🔒 Expired
+                        </span>
+                      ) : session.isActive ? (
                         <button className="btn btn-green btn-sm" onClick={() => handleStart(session._id)}>📱 Show QR</button>
                       ) : (
                         <button className="btn btn-primary btn-sm" onClick={() => handleStart(session._id)}>▶ Start</button>

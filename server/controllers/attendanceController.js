@@ -23,6 +23,10 @@ const checkIn = async (req, res) => {
       return res.status(400).json({ success: false, message: "This session is no longer active." });
     }
 
+    if (session.expiresAt && new Date() > new Date(session.expiresAt)) {
+      return res.status(400).json({ success: false, message: "This session has expired. QR check-in is no longer available." });
+    }
+
     if (new Date() > session.qrExpiresAt) {
       return res.status(400).json({ success: false, message: "QR code has expired. Ask your teacher to refresh it." });
     }

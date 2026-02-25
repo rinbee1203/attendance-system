@@ -45,6 +45,11 @@ const startSession = async (req, res) => {
       return res.status(404).json({ success: false, message: "Session not found." });
     }
 
+    // Block start if session has expired
+    if (session.expiresAt && new Date() > new Date(session.expiresAt)) {
+      return res.status(400).json({ success: false, message: "This session has expired and can no longer be started." });
+    }
+
     const token = crypto.randomBytes(20).toString("hex");
     const qrExpiresAt = new Date(Date.now() + QR_EXPIRY_SECONDS * 1000);
 
@@ -135,9 +140,26 @@ const getSessions = async (req, res) => {
   try {
     const sessions = await Session.find({ teacher: req.user._id }).sort({ createdAt: -1 });
 
+    // Auto-stop any active sessions that have passed their expiresAt
+    const now = new Date();
+    await Promise.all(
+      sessions
+        .filter(s => s.isActive && s.expiresAt && now > new Date(s.expiresAt))
+        .map(async (s) => {
+          s.isActive = false;
+          s.endTime = s.endTime || now;
+          s.qrToken = undefined;
+          s.qrExpiresAt = undefined;
+          await s.save();
+        })
+    );
+
+    // Re-fetch after auto-stop so list reflects latest state
+    const updatedSessions = await Session.find({ teacher: req.user._id }).sort({ createdAt: -1 });
+
     // Attach attendance count
     const sessionsWithCount = await Promise.all(
-      sessions.map(async (s) => {
+      updatedSessions.map(async (s) => {
         const count = await Attendance.countDocuments({ session: s._id });
         return { ...s.toJSON(), attendanceCount: count };
       })
