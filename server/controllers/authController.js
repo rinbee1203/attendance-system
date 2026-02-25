@@ -122,8 +122,8 @@ const updateProfile = async (req, res) => {
 
     // Profile picture (Base64, max ~2MB)
     if (profilePicture !== undefined) {
-      if (profilePicture && profilePicture.length > 2 * 1024 * 1024 * 1.37) {
-        return res.status(400).json({ success: false, message: "Image too large. Please use an image under 2MB." });
+      if (profilePicture && profilePicture.length > 500 * 1024) {
+        return res.status(400).json({ success: false, message: "Image too large after compression. Please use a smaller image." });
       }
       user.profilePicture = profilePicture || null;
     }

@@ -447,16 +447,80 @@ const styles = `
 
   /* Responsive */
   @media (max-width: 640px) {
+    /* Layout */
+    .container { padding: 0 14px; }
+    .main { padding: 20px 0 48px; }
+
+    /* Nav */
+    .nav-inner { height: auto; padding: 10px 0; flex-wrap: wrap; gap: 8px; }
+    .nav-brand { font-size: 1rem; }
+    .nav-actions { gap: 7px; flex-wrap: wrap; }
+    .nav-settings-btn { padding: 5px 10px; font-size: 0.76rem; }
+    .user-pill { padding: 5px 10px 5px 6px; }
+    .user-name { font-size: 0.78rem; }
+    .user-role { font-size: 0.7rem; }
+    .btn.btn-ghost.btn-sm { padding: 5px 10px; font-size: 0.78rem; }
+
+    /* Page headers */
+    .page-title { font-size: 1.4rem; }
+    .page-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+
+    /* Stats */
+    .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .stat-value { font-size: 1.6rem; }
+
+    /* Session cards */
+    .session-card { flex-wrap: wrap; gap: 10px; padding: 14px; }
+    .session-actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; gap: 6px; }
+    .session-subject { font-size: 0.92rem; }
+    .session-meta { font-size: 0.73rem; gap: 6px; }
+
+    /* Forms */
     .form-row { grid-template-columns: 1fr; }
-    .session-card { flex-wrap: wrap; }
-    .session-actions { width: 100%; }
-    .stats-grid { grid-template-columns: 1fr 1fr; }
-    .page-title { font-size: 1.55rem; }
-    .modal { padding: 20px 18px; }
-    .history-item { grid-template-columns: auto 1fr; }
+    .form-input { font-size: 0.88rem; }
+
+    /* Modal */
+    .modal { padding: 18px 14px; border-radius: 14px; }
+    .modal-actions { flex-direction: column; }
+    .modal-actions .btn { width: 100%; }
+
+    /* History */
+    .history-item { grid-template-columns: auto 1fr; gap: 10px; padding: 12px 14px; }
     .history-side { display: none; }
-    .detail-meta { gap: 8px; }
-    .container { padding: 0 18px; }
+    .detail-meta { gap: 6px; font-size: 0.78rem; flex-wrap: wrap; }
+    .detail-title { font-size: 1.2rem; }
+
+    /* Table */
+    .table-wrapper { border-radius: 8px; }
+    table { font-size: 0.78rem; }
+    th, td { padding: 8px 10px; }
+    .avatar { width: 24px; height: 24px; font-size: 0.65rem; margin-right: 6px; border-radius: 6px; }
+    .avatar-img { width: 24px; height: 24px; margin-right: 6px; border-radius: 6px; }
+
+    /* Accordion */
+    .section-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+    .export-bar { width: 100%; flex-wrap: wrap; }
+    .history-filters { flex-wrap: wrap; gap: 6px; }
+    .filter-chip { font-size: 0.73rem; padding: 4px 10px; }
+
+    /* Settings */
+    .settings-page { max-width: 100%; }
+    .settings-card { padding: 18px 14px; }
+    .avatar-upload-circle { width: 64px; height: 64px; font-size: 1.5rem; }
+    .profile-info-row { flex-direction: column; gap: 2px; }
+    .profile-info-label { width: auto; }
+    .profile-info-value { font-size: 0.85rem; }
+
+    /* Auth */
+    .auth-card { padding: 20px 16px; }
+    .auth-title { font-size: 1.55rem; }
+    .auth-logo { width: 48px; height: 48px; font-size: 1.4rem; }
+  }
+
+  @media (max-width: 400px) {
+    .stats-grid { grid-template-columns: 1fr 1fr; }
+    .session-actions .btn { font-size: 0.73rem; padding: 5px 9px; }
+    .nav-actions { gap: 5px; }
   }
 `;
 
@@ -1404,9 +1468,27 @@ function AvatarUpload({ current, name, onChange }) {
     const file = e.target.files[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) return alert("Please select an image file.");
-    if (file.size > 2 * 1024 * 1024) return alert("Image must be under 2MB.");
+    if (file.size > 5 * 1024 * 1024) return alert("Image must be under 5MB.");
+
     const reader = new FileReader();
-    reader.onload = (ev) => onChange(ev.target.result);
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        // Resize to max 300x300 and compress to JPEG 0.7 quality
+        const MAX = 300;
+        let { width, height } = img;
+        if (width > height) { if (width > MAX) { height = Math.round(height * MAX / width); width = MAX; } }
+        else { if (height > MAX) { width = Math.round(width * MAX / height); height = MAX; } }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        const compressed = canvas.toDataURL("image/jpeg", 0.7);
+        onChange(compressed);
+      };
+      img.src = ev.target.result;
+    };
     reader.readAsDataURL(file);
   };
 
