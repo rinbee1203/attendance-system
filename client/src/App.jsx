@@ -95,8 +95,8 @@ function exportToExcel(attendance, sessionInfo) {
       a.student?.section || "N/A",
       countByStudent[key] || 1,
       a.status === "present" ? "Present" : "Late",
-      ts.toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" }),
-      ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+      ts.toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Manila" }),
+      ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Manila" }),
     ];
   });
 
@@ -130,8 +130,8 @@ function exportStudentHistoryToExcel(attendance, studentName) {
       a.session?.room || "N/A",
       a.session?.teacher?.name || "N/A",
       a.status === "present" ? "Present" : "Late",
-      ts.toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" }),
-      ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" }),
+      ts.toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Manila" }),
+      ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Manila" }),
     ];
   });
 
@@ -151,17 +151,19 @@ function exportStudentHistoryToExcel(attendance, studentName) {
 }
 
 // ─── DATE HELPERS ─────────────────────────────────────────────────────────────
+const PH_TZ = { timeZone: "Asia/Manila" };
+
 function formatDate(date) {
-  return new Date(date).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" });
+  return new Date(date).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric", ...PH_TZ });
 }
 function formatDateTime(date) {
   return new Date(date).toLocaleString("en-PH", {
     year: "numeric", month: "short", day: "numeric",
-    hour: "2-digit", minute: "2-digit",
+    hour: "2-digit", minute: "2-digit", ...PH_TZ,
   });
 }
 function formatTime(date) {
-  return new Date(date).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" });
+  return new Date(date).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", ...PH_TZ });
 }
 function getDefaultEndDate() {
   const d = new Date();
@@ -767,14 +769,6 @@ function TeacherDashboard() {
     fetchSessions();
   };
 
-  const handleDelete = async (sessionId, sessionSubject) => {
-    if (!window.confirm(`Delete "${sessionSubject}" and all its attendance records?\n\nThis cannot be undone.`)) return;
-    try {
-      await api.request(`/sessions/${sessionId}`, { method: "DELETE" });
-      setSessions((prev) => prev.filter((s) => s._id !== sessionId));
-    } catch (err) { alert(err.message); }
-  };
-
   const viewDetails = async (session) => {
     setViewSession(session);
     setLoadingAttendance(true);
@@ -910,8 +904,8 @@ function TeacherDashboard() {
                               </span>
                             </td>
                             <td><span className={`badge badge-${a.status}`}>{a.status === "present" ? "✓ Present" : "⏰ Late"}</span></td>
-                            <td>{ts.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</td>
-                            <td>{ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</td>
+                            <td>{ts.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila" })}</td>
+                            <td>{ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Manila" })}</td>
                           </tr>
                         );
                       });
@@ -983,7 +977,6 @@ function TeacherDashboard() {
                         <button className="btn btn-primary btn-sm" onClick={() => handleStart(session._id)}>▶ Start</button>
                       )}
                       <button className="btn btn-ghost btn-sm" onClick={() => viewDetails(session)}>View List</button>
-                      <button className="btn btn-danger btn-sm" onClick={() => handleDelete(session._id, session.subject)} disabled={session.isActive} title={session.isActive ? "Stop session before deleting" : "Delete session"}>🗑</button>
                     </div>
                   </div>
                 ))}
@@ -1229,8 +1222,8 @@ function StudentDashboard() {
                             {a.status === "present" ? "✓ Present" : "⏰ Late"}
                           </span>
                           <div className="history-date">
-                            <div className="history-date-main">{ts.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</div>
-                            <div className="history-date-time">{ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}</div>
+                            <div className="history-date-main">{ts.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila" })}</div>
+                            <div className="history-date-time">{ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Manila" })}</div>
                           </div>
                         </div>
                       </div>
