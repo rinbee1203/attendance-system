@@ -13,8 +13,10 @@ const userPayload = (user) => ({
   email: user.email,
   role: user.role,
   studentId: user.studentId,
-  grade: user.grade,       // ← NEW
-  section: user.section,   // ← NEW
+  grade: user.grade,
+  section: user.section,
+  profilePicture: user.profilePicture || null,
+  birthdate: user.birthdate || null,
 });
 
 // @desc    Register user
@@ -106,7 +108,7 @@ const getMe = async (req, res) => {
 // @access  Private (teacher + student)
 const updateProfile = async (req, res) => {
   try {
-    const { name, currentPassword, newPassword, grade, section, profilePicture } = req.body;
+    const { name, currentPassword, newPassword, grade, section, profilePicture, birthdate } = req.body;
 
     const user = await User.findById(req.user._id).select("+password");
     if (!user) return res.status(404).json({ success: false, message: "User not found." });
@@ -118,6 +120,7 @@ const updateProfile = async (req, res) => {
     if (user.role === "student") {
       if (grade !== undefined) user.grade = grade;
       if (section !== undefined) user.section = section;
+      if (birthdate !== undefined) user.birthdate = birthdate ? new Date(birthdate) : null;
     }
 
     // Profile picture (Base64, max ~2MB)

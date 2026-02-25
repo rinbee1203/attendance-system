@@ -15,6 +15,9 @@ const userSchema = new mongoose.Schema(
 
     // Profile picture stored as Base64 string
     profilePicture: { type: String, default: null },
+
+    // Student personal info
+    birthdate: { type: Date, default: null },
   },
   { timestamps: true }
 );
