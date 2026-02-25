@@ -8,7 +8,8 @@ const sessionSchema = new mongoose.Schema(
     qrExpiresAt: { type: Date },
     isActive: { type: Boolean, default: false },
     startTime: { type: Date },
-    endTime: { type: Date },
+    endTime: { type: Date },       // actual time teacher clicked Stop
+    expiresAt: { type: Date },     // 210-day expiry set at creation
     room: { type: String, trim: true },
     description: { type: String, trim: true },
   },

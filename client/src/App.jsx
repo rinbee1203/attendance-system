@@ -561,7 +561,7 @@ function AuthPage({ onSuccess }) {
 // ─── CREATE SESSION MODAL ─────────────────────────────────────────────────────
 function CreateSessionModal({ onClose, onCreated }) {
   const defaultEnd = getDefaultEndDate();
-  const [form, setForm] = useState({ subject: "", room: "", description: "", endTime: defaultEnd });
+  const [form, setForm] = useState({ subject: "", room: "", description: "", expiresAt: defaultEnd });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -603,7 +603,7 @@ function CreateSessionModal({ onClose, onCreated }) {
             </div>
             <div className="form-group">
               <label className="form-label">End Date / Time</label>
-              <input className="form-input" type="datetime-local" value={form.endTime} onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))} />
+              <input className="form-input" type="datetime-local" value={form.expiresAt} onChange={(e) => setForm((f) => ({ ...f, expiresAt: e.target.value }))} />
               <p className="form-hint">Default: 210 days from now</p>
             </div>
           </div>
@@ -711,9 +711,9 @@ function QRModal({ session, onClose, onRefresh, onStop }) {
 }
 
 // ─── SESSION END DATE LABEL ───────────────────────────────────────────────────
-function SessionEndLabel({ endTime }) {
-  if (!endTime) return null;
-  const end = new Date(endTime);
+function SessionEndLabel({ expiresAt }) {
+  if (!expiresAt) return null;
+  const end = new Date(expiresAt);
   const now = new Date();
   const diffDays = Math.ceil((end - now) / (1000 * 60 * 60 * 24));
 
@@ -738,14 +738,22 @@ function AttendanceAccordion({ records }) {
     return acc;
   }, {});
 
-  const months = Object.keys(grouped);
-  const [openMonth, setOpenMonth] = useState(months[months.length - 1] || null);
-  const [openDays, setOpenDays] = useState(() => {
-    const lastMonth = months[months.length - 1];
-    if (!lastMonth) return {};
-    const days = Object.keys(grouped[lastMonth]);
-    return { [days[days.length - 1]]: true };
+  // Sort months and days by actual date (newest first)
+  const months = Object.keys(grouped).sort((a, b) => {
+    return new Date(b) - new Date(a);
   });
+  Object.keys(grouped).forEach(m => {
+    grouped[m] = Object.fromEntries(
+      Object.entries(grouped[m]).sort((a, b) => new Date(b[0]) - new Date(a[0]))
+    );
+  });
+
+  // Default: open the most recent month and most recent day
+  const latestMonth = months[0] || null;
+  const latestDay   = latestMonth ? Object.keys(grouped[latestMonth])[0] : null;
+
+  const [openMonth, setOpenMonth] = useState(latestMonth);
+  const [openDays, setOpenDays]   = useState(latestDay ? { [latestDay]: true } : {});
 
   const toggleMonth = (month) => setOpenMonth((prev) => prev === month ? null : month);
   const toggleDay   = (day)   => setOpenDays((prev) => ({ ...prev, [day]: !prev[day] }));
@@ -948,7 +956,8 @@ function TeacherDashboard() {
                   {viewSession.room && <span>📍 {viewSession.room}</span>}
                   <span>📅 Created {formatDate(viewSession.createdAt)}</span>
                   {viewSession.startTime && <span>▶ Started {formatDateTime(viewSession.startTime)}</span>}
-                  {viewSession.endTime && <span>⏹ Ended {formatDateTime(viewSession.endTime)}</span>}
+                  {viewSession.endTime && <span>⏹ Stopped {formatDateTime(viewSession.endTime)}</span>}
+                  {viewSession.expiresAt && <span>⏳ Expires {formatDate(viewSession.expiresAt)}</span>}
                 </div>
               </div>
             </div>
@@ -1063,7 +1072,7 @@ function TeacherDashboard() {
                         <span>📅 {formatDate(session.createdAt)}</span>
                         {session.startTime && <span>▶ {formatDateTime(session.startTime)}</span>}
                         {session.isActive && <span className="badge badge-active">● Live</span>}
-                        <SessionEndLabel endTime={session.endTime} />
+                        <SessionEndLabel expiresAt={session.expiresAt} />
                       </div>
                     </div>
                     <div className="session-actions">

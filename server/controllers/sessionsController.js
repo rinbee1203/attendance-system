@@ -11,18 +11,21 @@ const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
 // @access  Teacher only
 const createSession = async (req, res) => {
   try {
-    const { subject, room, description, endTime } = req.body;
+    const { subject, room, description, expiresAt } = req.body;
 
     if (!subject) {
       return res.status(400).json({ success: false, message: "Subject is required." });
     }
+
+    // Calculate default 210-day expiry if none provided
+    const expiry = expiresAt ? new Date(expiresAt) : new Date(Date.now() + 210 * 24 * 60 * 60 * 1000);
 
     const session = await Session.create({
       subject,
       teacher: req.user._id,
       room,
       description,
-      endTime: endTime ? new Date(endTime) : undefined,
+      expiresAt: expiry,   // 210-day expiry — never overwritten by Stop
     });
 
     res.status(201).json({ success: true, message: "Session created successfully!", session });
@@ -114,7 +117,7 @@ const stopSession = async (req, res) => {
     }
 
     session.isActive = false;
-    session.endTime = new Date();
+    session.endTime = new Date();   // actual stop time
     session.qrToken = undefined;
     session.qrExpiresAt = undefined;
     await session.save();
@@ -167,27 +170,4 @@ const getSession = async (req, res) => {
   }
 };
 
-// @desc    Delete session and all its attendance records
-// @route   DELETE /api/sessions/:id
-// @access  Teacher only
-const deleteSession = async (req, res) => {
-  try {
-    const session = await Session.findOne({ _id: req.params.id, teacher: req.user._id });
-
-    if (!session) {
-      return res.status(404).json({ success: false, message: "Session not found." });
-    }
-
-    // Delete all attendance records for this session first
-    await Attendance.deleteMany({ session: session._id });
-
-    // Delete the session itself
-    await session.deleteOne();
-
-    res.json({ success: true, message: "Session and all attendance records deleted." });
-  } catch (error) {
-    res.status(500).json({ success: false, message: "Failed to delete session." });
-  }
-};
-
-module.exports = { createSession, startSession, refreshQR, stopSession, getSessions, getSession, deleteSession };
+module.exports = { createSession, startSession, refreshQR, stopSession, getSessions, getSession };
