@@ -178,11 +178,7 @@ const deleteSession = async (req, res) => {
       return res.status(404).json({ success: false, message: "Session not found." });
     }
 
-    if (session.isActive) {
-      return res.status(400).json({ success: false, message: "Cannot delete an active session. Stop it first." });
-    }
-
-    // Delete all attendance records for this session
+    // Delete all attendance records for this session first
     await Attendance.deleteMany({ session: session._id });
 
     // Delete the session itself

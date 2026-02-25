@@ -770,8 +770,18 @@ function TeacherDashboard() {
   };
 
   const handleDelete = async (sessionId, sessionSubject) => {
-    if (!window.confirm(`Delete "${sessionSubject}" and all its attendance records?\n\nThis cannot be undone.`)) return;
+    const session = sessions.find((s) => s._id === sessionId);
+    const count = session?.attendanceCount || 0;
+    const confirmMsg = count > 0
+      ? `Delete "${sessionSubject}"?\n\nThis will also delete ${count} attendance record${count !== 1 ? "s" : ""}.\n\nThis cannot be undone.`
+      : `Delete "${sessionSubject}"?\n\nThis cannot be undone.`;
+    if (!window.confirm(confirmMsg)) return;
     try {
+      // If session is still active, stop it first
+      if (session?.isActive) {
+        await api.post(`/sessions/${sessionId}/stop`, {});
+        if (activeQR?._id === sessionId) setActiveQR(null);
+      }
       await api.request(`/sessions/${sessionId}`, { method: "DELETE" });
       setSessions((prev) => prev.filter((s) => s._id !== sessionId));
     } catch (err) { alert(err.message); }
@@ -985,7 +995,7 @@ function TeacherDashboard() {
                         <button className="btn btn-primary btn-sm" onClick={() => handleStart(session._id)}>▶ Start</button>
                       )}
                       <button className="btn btn-ghost btn-sm" onClick={() => viewDetails(session)}>View List</button>
-                      <button className="btn btn-danger btn-sm" onClick={() => handleDelete(session._id, session.subject)} disabled={session.isActive} title={session.isActive ? "Stop session before deleting" : "Delete session"}>🗑</button>
+                      <button className="btn btn-danger btn-sm" onClick={() => handleDelete(session._id, session.subject)} title="Delete session and all attendance records">🗑</button>
                     </div>
                   </div>
                 ))}
