@@ -54,8 +54,9 @@ function AuthProvider({ children }) {
   };
 
   const updateUser = (updatedUser) => {
-    localStorage.setItem("user", JSON.stringify(updatedUser));
-    setUser(updatedUser);
+    const fresh = { ...updatedUser };
+    localStorage.setItem("user", JSON.stringify(fresh));
+    setUser(fresh);
   };
 
   const logout = () => {
@@ -550,7 +551,7 @@ function Nav({ onSettings }) {
               <button className="nav-settings-btn" onClick={onSettings}>{user.role === "teacher" ? "⚙ Settings" : "👤 Profile"}</button>
               <div className="user-pill">
                 {user.profilePicture
-                  ? <img src={user.profilePicture} alt="avatar" className="user-avatar-img" />
+                  ? <img key={user.profilePicture.slice(-10)} src={user.profilePicture} alt="avatar" className="user-avatar-img" />
                   : <div className="user-avatar">{user.name?.[0]?.toUpperCase()}</div>
                 }
                 <div>
@@ -1537,7 +1538,8 @@ function TeacherSettings({ onBack }) {
     setAvatarLoading(true); setAvatarMsg(null);
     try {
       const data = await api.patch("/auth/profile", { profilePicture: avatar });
-      updateUser(data.user);
+      // Merge profilePicture directly into user so nav updates instantly
+      updateUser({ ...data.user, profilePicture: avatar });
       setAvatarMsg({ type: "success", text: "Profile picture updated!" });
     } catch (err) { setAvatarMsg({ type: "error", text: err.message }); }
     finally { setAvatarLoading(false); }
@@ -1676,7 +1678,8 @@ function StudentSettings({ onBack }) {
     setAvatarLoading(true); setAvatarMsg(null);
     try {
       const data = await api.patch("/auth/profile", { profilePicture: avatar });
-      updateUser(data.user);
+      // Merge profilePicture directly into user so nav updates instantly
+      updateUser({ ...data.user, profilePicture: avatar });
       setAvatarMsg({ type: "success", text: "Profile picture updated!" });
     } catch (err) { setAvatarMsg({ type: "error", text: err.message }); }
     finally { setAvatarLoading(false); }
