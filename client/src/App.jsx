@@ -479,6 +479,38 @@ const styles = `
   .accordion-chevron { color: var(--muted); font-size: 0.75rem; transition: transform 0.22s cubic-bezier(0.4,0,0.2,1); display: inline-block; }
   .accordion-chevron.open { transform: rotate(180deg); }
 
+  /* ── Profile popup (nav) ── */
+  .profile-popup-wrap { position: relative; }
+  .profile-pill-btn { display: flex; align-items: center; gap: 9px; background: var(--surface2); border: 1px solid var(--border); padding: 5px 12px 5px 5px; border-radius: 40px; cursor: pointer; transition: all 0.18s; font-family: var(--font-body); }
+  .profile-pill-btn:hover { border-color: var(--border2); background: var(--surface3); }
+  .profile-popup { position: absolute; top: calc(100% + 10px); right: 0; width: 280px; background: var(--surface); border: 1px solid var(--border2); border-radius: 18px; box-shadow: var(--shadow-lg); z-index: 200; overflow: hidden; animation: slideUp 0.18s cubic-bezier(0.34,1.56,0.64,1); }
+  .profile-popup-head { padding: 20px 18px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 13px; }
+  .profile-popup-avatar { width: 48px; height: 48px; border-radius: 14px; background: linear-gradient(135deg, var(--accent), var(--accent2)); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: 800; color: #fff; flex-shrink: 0; overflow: hidden; box-shadow: var(--shadow-accent); }
+  .profile-popup-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .profile-popup-name { font-weight: 800; font-size: 0.95rem; color: var(--text); margin-bottom: 2px; letter-spacing: -0.01em; }
+  .profile-popup-email { font-size: 0.75rem; color: var(--muted); }
+  .profile-popup-role { display: inline-flex; align-items: center; margin-top: 5px; background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 2px 9px; font-size: 0.7rem; font-weight: 700; color: var(--text-dim); text-transform: capitalize; }
+  .profile-popup-rows { padding: 10px 0; }
+  .profile-popup-row { display: flex; align-items: center; justify-content: space-between; padding: 7px 18px; font-size: 0.82rem; }
+  .profile-popup-row-label { color: var(--muted); font-weight: 600; font-size: 0.73rem; text-transform: uppercase; letter-spacing: 0.06em; }
+  .profile-popup-row-val { color: var(--text); font-weight: 600; }
+  .profile-popup-actions { padding: 10px 14px 14px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+  .profile-popup-btn { width: 100%; padding: 9px 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: var(--font-body); font-size: 0.83rem; font-weight: 600; color: var(--text-dim); cursor: pointer; text-align: left; transition: all 0.15s; display: flex; align-items: center; gap: 9px; }
+  .profile-popup-btn:hover { background: var(--surface3); color: var(--text); border-color: var(--border2); }
+  .profile-popup-btn.danger { color: var(--red); }
+  .profile-popup-btn.danger:hover { background: rgba(255,107,138,0.08); border-color: rgba(255,107,138,0.2); }
+
+  /* ── Student info modal (teacher view) ── */
+  .student-modal-avatar { width: 72px; height: 72px; border-radius: 20px; background: linear-gradient(135deg, var(--accent), var(--accent2)); display: flex; align-items: center; justify-content: center; font-size: 1.8rem; font-weight: 800; color: #fff; margin: 0 auto 18px; overflow: hidden; box-shadow: var(--shadow-accent); }
+  .student-modal-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .student-modal-name { font-family: var(--font-heading); font-size: 1.3rem; font-weight: 800; text-align: center; margin-bottom: 4px; letter-spacing: -0.02em; }
+  .student-modal-sub { text-align: center; font-size: 0.82rem; color: var(--muted); margin-bottom: 20px; }
+  .student-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+  .student-info-tile { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; }
+  .student-info-tile-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; margin-bottom: 5px; }
+  .student-info-tile-val { font-size: 0.9rem; font-weight: 700; color: var(--text); }
+  .student-info-tile-val.accent { color: var(--accent); font-family: var(--font-heading); font-size: 1.2rem; }
+
   /* ── Responsive ── */
   @media (max-width: 640px) {
     .container { padding: 0 16px; }
@@ -557,6 +589,24 @@ function Alert({ type = "error", message }) {
 
 function Nav({ onSettings }) {
   const { user, logout } = useAuth();
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  // Close popup when clicking outside
+  useEffect(() => {
+    const handler = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const calcAge = (bd) => {
+    if (!bd) return null;
+    const today = new Date(), birth = new Date(bd);
+    let age = today.getFullYear() - birth.getFullYear();
+    if (today.getMonth() < birth.getMonth() || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) age--;
+    return age;
+  };
+
   return (
     <nav className="nav">
       <div className="container nav-inner">
@@ -566,20 +616,79 @@ function Nav({ onSettings }) {
         </div>
         <div className="nav-actions">
           {user && (
-            <>
-              <button className="nav-settings-btn" onClick={onSettings}>{user.role === "teacher" ? "⚙ Settings" : "👤 Profile"}</button>
-              <div className="user-pill">
-                {user.profilePicture
-                  ? <img key={user.profilePicture.slice(-10)} src={user.profilePicture} alt="avatar" className="user-avatar-img" />
-                  : <div className="user-avatar">{user.name?.[0]?.toUpperCase()}</div>
-                }
-                <div>
+            <div className="profile-popup-wrap" ref={wrapRef}>
+              <button className="profile-pill-btn" onClick={() => setOpen(o => !o)}>
+                <div className="user-avatar" style={{ width: 30, height: 30, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}>
+                  {user.profilePicture
+                    ? <img key={user.profilePicture.slice(-10)} src={user.profilePicture} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                    : <span style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.72rem", fontWeight: 800 }}>{user.name?.[0]?.toUpperCase()}</span>
+                  }
+                </div>
+                <div style={{ textAlign: "left" }}>
                   <div className="user-name">{user.name}</div>
                   <div className="user-role">{user.role}</div>
                 </div>
-              </div>
-              <button className="nav-signout" onClick={logout}>Sign out</button>
-            </>
+                <span style={{ color: "var(--muted)", fontSize: "0.65rem", marginLeft: 2 }}>▾</span>
+              </button>
+
+              {open && (
+                <div className="profile-popup">
+                  {/* Header */}
+                  <div className="profile-popup-head">
+                    <div className="profile-popup-avatar">
+                      {user.profilePicture
+                        ? <img src={user.profilePicture} alt="avatar" />
+                        : user.name?.[0]?.toUpperCase()
+                      }
+                    </div>
+                    <div>
+                      <div className="profile-popup-name">{user.name}</div>
+                      <div className="profile-popup-email">{user.email}</div>
+                      <div className="profile-popup-role">{user.role}</div>
+                    </div>
+                  </div>
+
+                  {/* Info rows */}
+                  <div className="profile-popup-rows">
+                    {user.studentId && (
+                      <div className="profile-popup-row">
+                        <span className="profile-popup-row-label">Student ID</span>
+                        <span className="profile-popup-row-val">{user.studentId}</span>
+                      </div>
+                    )}
+                    {user.grade && (
+                      <div className="profile-popup-row">
+                        <span className="profile-popup-row-label">Grade</span>
+                        <span className="profile-popup-row-val">{user.grade}</span>
+                      </div>
+                    )}
+                    {user.section && (
+                      <div className="profile-popup-row">
+                        <span className="profile-popup-row-label">Section</span>
+                        <span className="profile-popup-row-val">{user.section}</span>
+                      </div>
+                    )}
+                    {user.birthdate && (
+                      <div className="profile-popup-row">
+                        <span className="profile-popup-row-label">Age</span>
+                        <span className="profile-popup-row-val">{calcAge(user.birthdate)} yrs old</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="profile-popup-actions">
+                    <button className="profile-popup-btn" onClick={() => { setOpen(false); onSettings(); }}>
+                      <span>{user.role === "teacher" ? "⚙" : "✏️"}</span>
+                      {user.role === "teacher" ? "Settings" : "Edit Profile"}
+                    </button>
+                    <button className="profile-popup-btn danger" onClick={() => { setOpen(false); logout(); }}>
+                      <span>→</span> Sign out
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -855,8 +964,58 @@ function isExpired(session) {
   return session.expiresAt && new Date() > new Date(session.expiresAt);
 }
 
+// ─── STUDENT INFO MODAL ──────────────────────────────────────────────────────
+function StudentInfoModal({ student, onClose }) {
+  if (!student) return null;
+
+  const calcAge = (bd) => {
+    if (!bd) return null;
+    const today = new Date(), birth = new Date(bd);
+    let age = today.getFullYear() - birth.getFullYear();
+    if (today.getMonth() < birth.getMonth() || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) age--;
+    return age;
+  };
+
+  const age = calcAge(student.birthdate);
+
+  const tiles = [
+    { label: "Student ID", val: student.studentId || "—" },
+    { label: "Grade", val: student.grade || "—" },
+    { label: "Section", val: student.section || "—" },
+    { label: "Email", val: student.email || "—" },
+    ...(age !== null ? [{ label: "Age", val: `${age} yrs old`, accent: true }] : []),
+    ...(student.birthdate ? [{ label: "Birthdate", val: new Date(student.birthdate).toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" }) }] : []),
+  ];
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 400 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+        <div className="student-modal-avatar">
+          {student.profilePicture
+            ? <img src={student.profilePicture} alt="avatar" />
+            : student.name?.[0]?.toUpperCase()
+          }
+        </div>
+        <div className="student-modal-name">{student.name}</div>
+        <div className="student-modal-sub">{student.email}</div>
+        <div className="student-info-grid">
+          {tiles.map((t) => (
+            <div key={t.label} className="student-info-tile">
+              <div className="student-info-tile-label">{t.label}</div>
+              <div className={`student-info-tile-val${t.accent ? " accent" : ""}`}>{t.val}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── ATTENDANCE ACCORDION (Month → Day → Table) ───────────────────────────────
-function AttendanceAccordion({ records }) {
+function AttendanceAccordion({ records, onStudentClick }) {
   const grouped = records.reduce((acc, a) => {
     const ts = new Date(a.timestamp);
     const monthKey = ts.toLocaleDateString("en-PH", { year: "numeric", month: "long", timeZone: "Asia/Manila" });
@@ -948,12 +1107,12 @@ function AttendanceAccordion({ records }) {
                                 return (
                                   <tr key={a._id}>
                                     <td style={{ color: "var(--muted)", fontSize: "0.78rem" }}>{i + 1}</td>
-                                    <td className="td-name">
+                                    <td className="td-name" onClick={() => onStudentClick && onStudentClick(a.student)} style={{ cursor: onStudentClick ? "pointer" : "default" }}>
                                       {a.student?.profilePicture
                                         ? <img src={a.student.profilePicture} alt="" className="avatar-img" />
                                         : <span className="avatar">{a.student?.name?.[0]?.toUpperCase()}</span>
                                       }
-                                      {a.student?.name}
+                                      <span style={{ borderBottom: onStudentClick ? "1px dashed var(--border2)" : "none" }}>{a.student?.name}</span>
                                     </td>
                                     <td>{a.student?.studentId || "—"}</td>
                                     <td>{a.student?.grade || <span style={{ color: "var(--muted)" }}>—</span>}</td>
@@ -989,6 +1148,7 @@ function TeacherDashboard() {
   const [attendance, setAttendance] = useState([]);
   const [loadingAttendance, setLoadingAttendance] = useState(false);
   const [filterStatus, setFilterStatus] = useState("all");
+  const [selectedStudent, setSelectedStudent] = useState(null);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -1127,6 +1287,8 @@ function TeacherDashboard() {
               </div>
             </div>
 
+            {selectedStudent && <StudentInfoModal student={selectedStudent} onClose={() => setSelectedStudent(null)} />}
+
             {loadingAttendance ? (
               <div className="loading-page"><Spinner size={28} /></div>
             ) : filteredAttendance.length === 0 ? (
@@ -1135,7 +1297,7 @@ function TeacherDashboard() {
                 <div className="empty-text">{attendance.length === 0 ? "No attendance records for this session yet." : "No records match this filter."}</div>
               </div>
             ) : (
-              <AttendanceAccordion records={filteredAttendance} />
+              <AttendanceAccordion records={filteredAttendance} onStudentClick={setSelectedStudent} />
             )}
           </>
         ) : (
