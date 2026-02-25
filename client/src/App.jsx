@@ -16,6 +16,7 @@ const api = {
     return data;
   },
   post: (url, body) => api.request(url, { method: "POST", body: JSON.stringify(body) }),
+  patch: (url, body) => api.request(url, { method: "PATCH", body: JSON.stringify(body) }),
   get: (url) => api.request(url, { method: "GET" }),
 };
 
@@ -52,13 +53,18 @@ function AuthProvider({ children }) {
     } finally { setLoading(false); }
   };
 
+  const updateUser = (updatedUser) => {
+    localStorage.setItem("user", JSON.stringify(updatedUser));
+    setUser(updatedUser);
+  };
+
   const logout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     setUser(null);
   };
 
-  return <AuthContext.Provider value={{ user, login, register, logout, loading }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, login, register, logout, loading, updateUser }}>{children}</AuthContext.Provider>;
 }
 
 // ─── EXCEL EXPORT UTILITY ─────────────────────────────────────────────────────
@@ -412,6 +418,21 @@ const styles = `
   .date-cell-date { color: var(--text-dim); }
   .date-cell-time { font-size: 0.72rem; color: var(--muted); }
 
+  /* Settings / Profile */
+  .settings-page { max-width: 560px; margin: 0 auto; }
+  .settings-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; margin-bottom: 20px; }
+  .settings-card-title { font-family: var(--font-heading); font-size: 1rem; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .settings-card-sub { font-size: 0.82rem; color: var(--muted); margin-bottom: 22px; }
+  .profile-avatar-lg { width: 64px; height: 64px; border-radius: 18px; background: linear-gradient(135deg, var(--accent), var(--accent2)); display: flex; align-items: center; justify-content: center; font-size: 1.6rem; font-weight: 800; color: #fff; margin-bottom: 18px; box-shadow: var(--shadow-accent); }
+  .profile-info-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .profile-info-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; width: 80px; flex-shrink: 0; }
+  .profile-info-value { font-size: 0.9rem; color: var(--text); font-weight: 500; }
+  .divider-label { display: flex; align-items: center; gap: 10px; margin: 18px 0; }
+  .divider-label span { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 700; white-space: nowrap; }
+  .divider-label::before, .divider-label::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+  .nav-settings-btn { display: flex; align-items: center; gap: 6px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 12px; font-size: 0.82rem; color: var(--text-dim); cursor: pointer; font-family: var(--font-body); transition: all 0.18s; }
+  .nav-settings-btn:hover { color: var(--text); border-color: var(--border2); background: var(--surface3); }
+
   /* Responsive */
   @media (max-width: 640px) {
     .form-row { grid-template-columns: 1fr; }
@@ -438,7 +459,7 @@ function Alert({ type = "error", message }) {
   return <div className={`alert alert-${type}`}><span>{icon}</span>{message}</div>;
 }
 
-function Nav() {
+function Nav({ onSettings }) {
   const { user, logout } = useAuth();
   return (
     <nav className="nav">
@@ -450,6 +471,9 @@ function Nav() {
         <div className="nav-actions">
           {user && (
             <>
+              {user.role === "teacher" && (
+                <button className="nav-settings-btn" onClick={onSettings}>⚙ Settings</button>
+              )}
               <div className="user-pill">
                 <div className="user-avatar">{user.name?.[0]?.toUpperCase()}</div>
                 <div>
@@ -1356,6 +1380,159 @@ function StudentDashboard() {
   );
 }
 
+// ─── TEACHER SETTINGS ────────────────────────────────────────────────────────
+function TeacherSettings({ onBack }) {
+  const { user, updateUser } = useAuth();
+
+  // Name form
+  const [nameForm, setNameForm] = useState({ name: user?.name || "" });
+  const [nameLoading, setNameLoading] = useState(false);
+  const [nameMsg, setNameMsg] = useState(null); // { type: "success"|"error", text }
+
+  // Password form
+  const [pwForm, setPwForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [pwLoading, setPwLoading] = useState(false);
+  const [pwMsg, setPwMsg] = useState(null);
+
+  const handleNameSave = async (e) => {
+    e.preventDefault();
+    if (!nameForm.name.trim()) return;
+    setNameLoading(true);
+    setNameMsg(null);
+    try {
+      const data = await api.patch("/auth/profile", { name: nameForm.name.trim() });
+      updateUser(data.user);
+      setNameMsg({ type: "success", text: "Name updated successfully!" });
+    } catch (err) {
+      setNameMsg({ type: "error", text: err.message });
+    } finally { setNameLoading(false); }
+  };
+
+  const handlePasswordSave = async (e) => {
+    e.preventDefault();
+    setPwMsg(null);
+    if (pwForm.newPassword !== pwForm.confirmPassword) {
+      return setPwMsg({ type: "error", text: "New passwords do not match." });
+    }
+    if (pwForm.newPassword.length < 6) {
+      return setPwMsg({ type: "error", text: "New password must be at least 6 characters." });
+    }
+    setPwLoading(true);
+    try {
+      await api.patch("/auth/profile", { currentPassword: pwForm.currentPassword, newPassword: pwForm.newPassword });
+      setPwMsg({ type: "success", text: "Password changed successfully!" });
+      setPwForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    } catch (err) {
+      setPwMsg({ type: "error", text: err.message });
+    } finally { setPwLoading(false); }
+  };
+
+  return (
+    <div className="main">
+      <div className="container">
+        <div className="page-header">
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <button className="btn btn-ghost btn-sm" onClick={onBack}>← Back</button>
+            <div className="page-title-block">
+              <h1 className="page-title">Settings</h1>
+              <p className="page-sub">Manage your profile and account</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="settings-page">
+          {/* Profile Info Card */}
+          <div className="settings-card">
+            <div className="settings-card-title">👤 Profile</div>
+            <div className="settings-card-sub">Your current account information</div>
+            <div className="profile-avatar-lg">{user?.name?.[0]?.toUpperCase()}</div>
+            <div className="profile-info-row">
+              <span className="profile-info-label">Name</span>
+              <span className="profile-info-value">{user?.name}</span>
+            </div>
+            <div className="profile-info-row">
+              <span className="profile-info-label">Email</span>
+              <span className="profile-info-value">{user?.email}</span>
+            </div>
+            <div className="profile-info-row">
+              <span className="profile-info-label">Role</span>
+              <span className="profile-info-value" style={{ textTransform: "capitalize" }}>👨‍🏫 {user?.role}</span>
+            </div>
+          </div>
+
+          {/* Change Name Card */}
+          <div className="settings-card">
+            <div className="settings-card-title">✏️ Change Name</div>
+            <div className="settings-card-sub">Update your display name</div>
+            {nameMsg && <Alert type={nameMsg.type} message={nameMsg.text} />}
+            <form onSubmit={handleNameSave}>
+              <div className="form-group">
+                <label className="form-label">Full Name</label>
+                <input
+                  className="form-input"
+                  value={nameForm.name}
+                  onChange={(e) => setNameForm({ name: e.target.value })}
+                  placeholder="Enter your full name"
+                  required
+                />
+              </div>
+              <button type="submit" className="btn btn-primary" disabled={nameLoading || nameForm.name.trim() === user?.name}>
+                {nameLoading ? <Spinner /> : "Save Name"}
+              </button>
+            </form>
+          </div>
+
+          {/* Change Password Card */}
+          <div className="settings-card">
+            <div className="settings-card-title">🔐 Change Password</div>
+            <div className="settings-card-sub">Choose a strong password with at least 6 characters</div>
+            {pwMsg && <Alert type={pwMsg.type} message={pwMsg.text} />}
+            <form onSubmit={handlePasswordSave}>
+              <div className="form-group">
+                <label className="form-label">Current Password</label>
+                <input
+                  className="form-input"
+                  type="password"
+                  value={pwForm.currentPassword}
+                  onChange={(e) => setPwForm(f => ({ ...f, currentPassword: e.target.value }))}
+                  placeholder="Enter current password"
+                  required
+                />
+              </div>
+              <div className="divider-label"><span>New Password</span></div>
+              <div className="form-group">
+                <label className="form-label">New Password</label>
+                <input
+                  className="form-input"
+                  type="password"
+                  value={pwForm.newPassword}
+                  onChange={(e) => setPwForm(f => ({ ...f, newPassword: e.target.value }))}
+                  placeholder="Min. 6 characters"
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Confirm New Password</label>
+                <input
+                  className="form-input"
+                  type="password"
+                  value={pwForm.confirmPassword}
+                  onChange={(e) => setPwForm(f => ({ ...f, confirmPassword: e.target.value }))}
+                  placeholder="Repeat new password"
+                  required
+                />
+              </div>
+              <button type="submit" className="btn btn-primary" disabled={pwLoading}>
+                {pwLoading ? <Spinner /> : "Change Password"}
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── ROUTER ───────────────────────────────────────────────────────────────────
 function App() {
   const { user } = useAuth();
@@ -1374,9 +1551,11 @@ function App() {
 
   return (
     <div className="app">
-      <Nav />
+      <Nav onSettings={() => setPage("settings")} />
       {page === "checkin" && qrToken ? (
         <CheckInPage token={qrToken} />
+      ) : page === "settings" && user.role === "teacher" ? (
+        <TeacherSettings onBack={() => setPage("home")} />
       ) : user.role === "teacher" ? (
         <TeacherDashboard />
       ) : (

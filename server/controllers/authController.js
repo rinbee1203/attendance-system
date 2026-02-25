@@ -101,4 +101,50 @@ const getMe = async (req, res) => {
   });
 };
 
-module.exports = { register, login, getMe };
+// @desc    Update teacher profile (name and/or password)
+// @route   PATCH /api/auth/profile
+// @access  Private (teacher only)
+const updateProfile = async (req, res) => {
+  try {
+    const { name, currentPassword, newPassword } = req.body;
+
+    const user = await User.findById(req.user._id).select("+password");
+    if (!user) return res.status(404).json({ success: false, message: "User not found." });
+
+    // Update name if provided
+    if (name && name.trim()) {
+      user.name = name.trim();
+    }
+
+    // Update password if provided
+    if (newPassword) {
+      if (!currentPassword) {
+        return res.status(400).json({ success: false, message: "Current password is required to set a new password." });
+      }
+      const isMatch = await user.comparePassword(currentPassword);
+      if (!isMatch) {
+        return res.status(401).json({ success: false, message: "Current password is incorrect." });
+      }
+      if (newPassword.length < 6) {
+        return res.status(400).json({ success: false, message: "New password must be at least 6 characters." });
+      }
+      user.password = newPassword;
+    }
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "Profile updated successfully!",
+      user: userPayload(user),
+    });
+  } catch (error) {
+    if (error.name === "ValidationError") {
+      const messages = Object.values(error.errors).map((e) => e.message);
+      return res.status(400).json({ success: false, message: messages.join(". ") });
+    }
+    res.status(500).json({ success: false, message: "Server error. Please try again." });
+  }
+};
+
+module.exports = { register, login, getMe, updateProfile };
