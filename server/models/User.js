@@ -18,6 +18,24 @@ const userSchema = new mongoose.Schema(
 
     // Student personal info
     birthdate: { type: Date, default: null },
+
+    // Password reset
+    resetPasswordToken: { type: String, default: null },
+    resetPasswordExpires: { type: Date, default: null },
+
+    // Teacher professional info
+    school:        { type: String, trim: true },
+    department:    { type: String, trim: true },
+    subjectsTaught:{ type: String, trim: true },
+    yearsTeaching: { type: Number, default: null },
+    phoneNumber:   { type: String, trim: true },
+
+    // Teacher profile fields
+    school: { type: String, trim: true, default: null },      // school/institution name
+    subjectsTaught: { type: String, trim: true, default: null }, // e.g. "Math, Science"
+    department: { type: String, trim: true, default: null },  // e.g. "STEM Department"
+    yearsTeaching: { type: Number, default: null },           // years of experience
+    phoneNumber: { type: String, trim: true, default: null },
   },
   { timestamps: true }
 );

@@ -1,4 +1,6 @@
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
+const nodemailer = require("nodemailer");
 const User = require("../models/User");
 
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret_change_in_production";
@@ -17,6 +19,11 @@ const userPayload = (user) => ({
   section: user.section,
   profilePicture: user.profilePicture || null,
   birthdate: user.birthdate || null,
+  school: user.school || null,
+  subjectsTaught: user.subjectsTaught || null,
+  department: user.department || null,
+  yearsTeaching: user.yearsTeaching || null,
+  phoneNumber: user.phoneNumber || null,
 });
 
 // @desc    Register user
@@ -108,7 +115,7 @@ const getMe = async (req, res) => {
 // @access  Private (teacher + student)
 const updateProfile = async (req, res) => {
   try {
-    const { name, currentPassword, newPassword, grade, section, profilePicture, birthdate } = req.body;
+    const { name, currentPassword, newPassword, grade, section, profilePicture, birthdate, school, subjectsTaught, department, yearsTeaching, phoneNumber } = req.body;
 
     const user = await User.findById(req.user._id).select("+password");
     if (!user) return res.status(404).json({ success: false, message: "User not found." });
@@ -116,11 +123,31 @@ const updateProfile = async (req, res) => {
     // Update name
     if (name && name.trim()) user.name = name.trim();
 
+    // Teacher-only fields
+    if (user.role === "teacher") {
+      if (school !== undefined) user.school = school;
+      if (department !== undefined) user.department = department;
+      if (subjectsTaught !== undefined) user.subjectsTaught = subjectsTaught;
+      if (yearsTeaching !== undefined) user.yearsTeaching = yearsTeaching ? Number(yearsTeaching) : null;
+      if (phoneNumber !== undefined) user.phoneNumber = phoneNumber;
+    }
+
     // Student-only fields
     if (user.role === "student") {
       if (grade !== undefined) user.grade = grade;
       if (section !== undefined) user.section = section;
       if (birthdate !== undefined) user.birthdate = birthdate ? new Date(birthdate) : null;
+    }
+    // Birthdate applies to all roles
+    if (user.role === "teacher" && birthdate !== undefined) user.birthdate = birthdate ? new Date(birthdate) : null;
+    // Teacher-only fields
+    if (user.role === "teacher") {
+      if (birthdate !== undefined) user.birthdate = birthdate ? new Date(birthdate) : null;
+      if (school !== undefined) user.school = school;
+      if (subjectsTaught !== undefined) user.subjectsTaught = subjectsTaught;
+      if (department !== undefined) user.department = department;
+      if (yearsTeaching !== undefined) user.yearsTeaching = yearsTeaching ? Number(yearsTeaching) : null;
+      if (phoneNumber !== undefined) user.phoneNumber = phoneNumber;
     }
 
     // Profile picture (Base64, max ~2MB)
@@ -162,4 +189,91 @@ const updateProfile = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getMe, updateProfile };
+// @desc    Forgot password — send reset email
+// @route   POST /api/auth/forgot-password
+// @access  Public
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: "Please provide your email address." });
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+
+    // Always respond success to prevent email enumeration
+    if (!user) {
+      return res.json({ success: true, message: "If that email is registered, a reset link has been sent." });
+    }
+
+    // Generate reset token
+    const token = crypto.randomBytes(32).toString("hex");
+    user.resetPasswordToken   = crypto.createHash("sha256").update(token).digest("hex");
+    user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    await user.save();
+
+    const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
+    const resetUrl = `${CLIENT_URL}/reset-password?token=${token}`;
+
+    // Send email via nodemailer
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    await transporter.sendMail({
+      from: `"AttendQR" <${process.env.EMAIL_USER}>`,
+      to: user.email,
+      subject: "Reset your AttendQR password",
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#0a0a1a;color:#eeeef8;border-radius:16px;">
+          <div style="width:48px;height:48px;background:linear-gradient(135deg,#7c6fff,#ff6b8a);border-radius:14px;display:flex;align-items:center;justify-content:center;margin-bottom:24px;">
+            <span style="font-size:22px;">✔</span>
+          </div>
+          <h2 style="margin:0 0 8px;font-size:1.4rem;">Reset your password</h2>
+          <p style="color:#9494b8;margin:0 0 28px;font-size:0.9rem;">Hi ${user.name}, we received a request to reset your AttendQR password. Click the button below to set a new one.</p>
+          <a href="${resetUrl}" style="display:inline-block;background:#7c6fff;color:#fff;text-decoration:none;padding:13px 28px;border-radius:10px;font-weight:700;font-size:0.95rem;margin-bottom:24px;">Reset Password</a>
+          <p style="color:#52527a;font-size:0.8rem;margin:0;">This link expires in <strong style="color:#9494b8;">1 hour</strong>. If you didn't request this, you can safely ignore this email.</p>
+          <hr style="border:none;border-top:1px solid rgba(255,255,255,0.07);margin:24px 0;">
+          <p style="color:#52527a;font-size:0.75rem;margin:0;">AttendQR · QR-based Attendance System</p>
+        </div>
+      `,
+    });
+
+    res.json({ success: true, message: "If that email is registered, a reset link has been sent." });
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    res.status(500).json({ success: false, message: "Failed to send reset email. Please try again." });
+  }
+};
+
+// @desc    Reset password using token
+// @route   POST /api/auth/reset-password
+// @access  Public
+const resetPassword = async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) return res.status(400).json({ success: false, message: "Token and new password are required." });
+    if (password.length < 6) return res.status(400).json({ success: false, message: "Password must be at least 6 characters." });
+
+    const hashed = crypto.createHash("sha256").update(token).digest("hex");
+    const user = await User.findOne({
+      resetPasswordToken: hashed,
+      resetPasswordExpires: { $gt: Date.now() },
+    });
+
+    if (!user) return res.status(400).json({ success: false, message: "Reset link is invalid or has expired." });
+
+    user.password = password;
+    user.resetPasswordToken   = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    res.json({ success: true, message: "Password reset successfully! You can now sign in." });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Server error. Please try again." });
+  }
+};
+
+module.exports = { register, login, getMe, updateProfile, forgotPassword, resetPassword };

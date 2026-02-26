@@ -759,24 +759,21 @@ function Nav({ onSettings }) {
   );
 }
 
-// ─── AUTH ─────────────────────────────────────────────────────────────────────
-function AuthPage({ onSuccess }) {
-  const [mode, setMode] = useState("login");
-  const [role, setRole] = useState("student");
-  const [form, setForm] = useState({ name: "", email: "", password: "", studentId: "", grade: "", section: "" });
-  const [error, setError] = useState("");
-  const { login, register, loading } = useAuth();
-
-  const handleChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+// ─── FORGOT PASSWORD ──────────────────────────────────────────────────────────
+function ForgotPasswordPage({ onBack }) {
+  const [email, setEmail] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
+    setLoading(true); setMsg(null);
     try {
-      if (mode === "login") await login(form.email, form.password);
-      else await register({ ...form, role });
-      onSuccess();
-    } catch (err) { setError(err.message); }
+      await api.post("/auth/forgot-password", { email });
+      setMsg({ type: "success", text: "Reset link sent! Check your email inbox (and spam folder)." });
+    } catch (err) {
+      setMsg({ type: "error", text: err.message });
+    } finally { setLoading(false); }
   };
 
   return (
@@ -787,8 +784,149 @@ function AuthPage({ onSuccess }) {
       <div className="auth-card">
         <div className="auth-header">
           <div className="auth-logo-wrap"><Logo size={36} /></div>
-          <h1 className="auth-title">{mode === "login" ? "Welcome back" : "Get started"}</h1>
-          <p className="auth-sub">{mode === "login" ? "Sign in to your AttendQR account" : "Create your free account today"}</p>
+          <h1 className="auth-title">Forgot password?</h1>
+          <p className="auth-sub">Enter your registered email and we'll send you a reset link</p>
+        </div>
+        {msg && <Alert type={msg.type} message={msg.text} />}
+        {msg?.type !== "success" && (
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label className="form-label">Email Address</label>
+              <input className="form-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@school.edu" required />
+            </div>
+            <button type="submit" className="btn btn-primary btn-lg" style={{ width:"100%" }} disabled={loading}>
+              {loading ? <Spinner /> : "Send Reset Link"}
+            </button>
+          </form>
+        )}
+        <div className="auth-switch">
+          <a onClick={onBack}>← Back to Sign In</a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ResetPasswordPage({ token }) {
+  const [form, setForm] = useState({ newPassword: "", confirmPassword: "" });
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [done, setDone] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (form.newPassword !== form.confirmPassword)
+      return setMsg({ type: "error", text: "Passwords do not match." });
+    if (form.newPassword.length < 6)
+      return setMsg({ type: "error", text: "Password must be at least 6 characters." });
+    setLoading(true); setMsg(null);
+    try {
+      await api.post("/auth/reset-password", { token, newPassword: form.newPassword });
+      setDone(true);
+    } catch (err) {
+      setMsg({ type: "error", text: err.message });
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="auth-page">
+      <div className="auth-bg-orb auth-bg-orb-1" />
+      <div className="auth-bg-orb auth-bg-orb-2" />
+      <div className="auth-dots" />
+      <div className="auth-card">
+        <div className="auth-header">
+          <div className="auth-logo-wrap"><Logo size={36} /></div>
+          <h1 className="auth-title">{done ? "Password reset!" : "Set new password"}</h1>
+          <p className="auth-sub">{done ? "Your password has been updated successfully." : "Choose a strong password (min. 6 characters)"}</p>
+        </div>
+        {done ? (
+          <div style={{ textAlign:"center", marginTop:8 }}>
+            <div style={{ fontSize:"3rem", marginBottom:16 }}>✅</div>
+            <a href="/" className="btn btn-primary btn-lg" style={{ display:"inline-block" }}>Go to Sign In</a>
+          </div>
+        ) : (
+          <>
+            {msg && <Alert type={msg.type} message={msg.text} />}
+            <form onSubmit={handleSubmit}>
+              <div className="form-group">
+                <label className="form-label">New Password</label>
+                <input className="form-input" type="password" value={form.newPassword} onChange={e => setForm(f=>({...f,newPassword:e.target.value}))} placeholder="Min. 6 characters" required />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Confirm New Password</label>
+                <input className="form-input" type="password" value={form.confirmPassword} onChange={e => setForm(f=>({...f,confirmPassword:e.target.value}))} placeholder="Repeat new password" required />
+              </div>
+              <button type="submit" className="btn btn-primary btn-lg" style={{ width:"100%" }} disabled={loading}>
+                {loading ? <Spinner /> : "Reset Password"}
+              </button>
+            </form>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── AUTH ─────────────────────────────────────────────────────────────────────
+function AuthPage({ onSuccess }) {
+  const [mode, setMode] = useState("login");
+  const [role, setRole] = useState("student");
+  const [form, setForm] = useState({ name: "", email: "", password: "", studentId: "", grade: "", section: "" });
+  const [error, setError] = useState("");
+  const { login, register, loading } = useAuth();
+
+  const handleChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+
+  const [successMsg, setSuccessMsg] = useState("");
+  const [resetToken, setResetToken] = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    return p.get("token") || "";
+  });
+
+  // If URL has ?token=... go straight to reset mode
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError(""); setSuccessMsg("");
+    try {
+      if (mode === "login") { await login(form.email, form.password); onSuccess(); }
+      else if (mode === "register") { await register({ ...form, role }); onSuccess(); }
+      else if (mode === "forgot") {
+        const data = await api.post("/auth/forgot-password", { email: form.email });
+        setSuccessMsg(data.message);
+      } else if (mode === "reset") {
+        if (newPassword !== confirmNewPassword) return setError("Passwords do not match.");
+        const data = await api.post("/auth/reset-password", { token: resetToken, password: newPassword });
+        setSuccessMsg(data.message);
+        setTimeout(() => { setMode("login"); setSuccessMsg(""); }, 2500);
+      }
+    } catch (err) { setError(err.message); }
+  };
+
+  // Auto-switch to reset mode if URL has ?token=
+  useEffect(() => {
+    if (resetToken) setMode("reset");
+  }, [resetToken]);
+
+  const modeConfig = {
+    login:    { title: "Welcome back",       sub: "Sign in to your AttendQR account" },
+    register: { title: "Get started",        sub: "Create your free account today" },
+    forgot:   { title: "Forgot password?",   sub: "Enter your email and we'll send a reset link" },
+    reset:    { title: "Set new password",   sub: "Choose a strong password of at least 6 characters" },
+  };
+
+  return (
+    <div className="auth-page">
+      <div className="auth-bg-orb auth-bg-orb-1" />
+      <div className="auth-bg-orb auth-bg-orb-2" />
+      <div className="auth-dots" />
+      <div className="auth-card">
+        <div className="auth-header">
+          <div className="auth-logo-wrap"><Logo size={36} /></div>
+          <h1 className="auth-title">{modeConfig[mode]?.title}</h1>
+          <p className="auth-sub">{modeConfig[mode]?.sub}</p>
         </div>
 
         {mode === "register" && (
@@ -801,52 +939,90 @@ function AuthPage({ onSuccess }) {
           </div>
         )}
 
+        {successMsg && <Alert type="success" message={successMsg} />}
         <Alert message={error} />
 
         <form onSubmit={handleSubmit}>
-          {mode === "register" && (
+          {/* ── FORGOT PASSWORD ── */}
+          {mode === "forgot" && (
             <div className="form-group">
-              <label className="form-label">Full Name</label>
-              <input className="form-input" name="name" value={form.name} onChange={handleChange} placeholder="Juan dela Cruz" required />
+              <label className="form-label">Email Address</label>
+              <input className="form-input" type="email" name="email" value={form.email} onChange={handleChange} placeholder="you@school.edu" required />
             </div>
           )}
-          <div className="form-group">
-            <label className="form-label">Email Address</label>
-            <input className="form-input" type="email" name="email" value={form.email} onChange={handleChange} placeholder="you@school.edu" required />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Password</label>
-            <input className="form-input" type="password" name="password" value={form.password} onChange={handleChange} placeholder="Min. 6 characters" required />
-          </div>
-          {mode === "register" && role === "student" && (
+
+          {/* ── RESET PASSWORD ── */}
+          {mode === "reset" && (
             <>
               <div className="form-group">
-                <label className="form-label">Student ID</label>
-                <input className="form-input" name="studentId" value={form.studentId} onChange={handleChange} placeholder="e.g. 2021-12345" required />
+                <label className="form-label">New Password</label>
+                <input className="form-input" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Min. 6 characters" required />
               </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">Grade</label>
-                  <input className="form-input" name="grade" value={form.grade} onChange={handleChange} placeholder="e.g. Grade 11" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Section</label>
-                  <input className="form-input" name="section" value={form.section} onChange={handleChange} placeholder="e.g. Section A" />
-                </div>
+              <div className="form-group">
+                <label className="form-label">Confirm New Password</label>
+                <input className="form-input" type="password" value={confirmNewPassword} onChange={e => setConfirmNewPassword(e.target.value)} placeholder="Repeat new password" required />
               </div>
             </>
           )}
+
+          {/* ── LOGIN / REGISTER ── */}
+          {(mode === "login" || mode === "register") && (
+            <>
+              {mode === "register" && (
+                <div className="form-group">
+                  <label className="form-label">Full Name</label>
+                  <input className="form-input" name="name" value={form.name} onChange={handleChange} placeholder="Juan dela Cruz" required />
+                </div>
+              )}
+              <div className="form-group">
+                <label className="form-label">Email Address</label>
+                <input className="form-input" type="email" name="email" value={form.email} onChange={handleChange} placeholder="you@school.edu" required />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Password</label>
+                <input className="form-input" type="password" name="password" value={form.password} onChange={handleChange} placeholder="Min. 6 characters" required />
+              </div>
+              {mode === "register" && role === "student" && (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">Student ID</label>
+                    <input className="form-input" name="studentId" value={form.studentId} onChange={handleChange} placeholder="e.g. 2021-12345" required />
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label">Grade</label>
+                      <input className="form-input" name="grade" value={form.grade} onChange={handleChange} placeholder="e.g. Grade 11" />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Section</label>
+                      <input className="form-input" name="section" value={form.section} onChange={handleChange} placeholder="e.g. Section A" />
+                    </div>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+
           <button type="submit" className="btn btn-primary btn-lg" style={{ width: "100%" }} disabled={loading}>
-            {loading ? <Spinner /> : mode === "login" ? "Sign In" : "Create Account"}
+            {loading ? <Spinner /> : mode === "login" ? "Sign In" : mode === "register" ? "Create Account" : mode === "forgot" ? "Send Reset Link" : "Reset Password"}
           </button>
+
+          {mode === "login" && (
+            <div style={{ textAlign:"center", marginTop:12 }}>
+              <span style={{ fontSize:"0.82rem", color:"var(--muted)", cursor:"pointer", transition:"color 0.15s" }}
+                onClick={() => { setMode("forgot"); setError(""); setSuccessMsg(""); }}
+                onMouseEnter={e=>e.currentTarget.style.color="var(--accent-light)"}
+                onMouseLeave={e=>e.currentTarget.style.color="var(--muted)"}>
+                Forgot your password?
+              </span>
+            </div>
+          )}
         </form>
 
         <div className="auth-switch">
-          {mode === "login" ? (
-            <>Don't have an account? <a onClick={() => setMode("register")}>Sign up</a></>
-          ) : (
-            <>Already have an account? <a onClick={() => setMode("login")}>Sign in</a></>
-          )}
+          {mode === "login" && <>Don't have an account? <a onClick={() => { setMode("register"); setError(""); setSuccessMsg(""); }}>Sign up</a></>}
+          {mode === "register" && <>Already have an account? <a onClick={() => { setMode("login"); setError(""); setSuccessMsg(""); }}>Sign in</a></>}
+          {(mode === "forgot" || mode === "reset") && <>Remember your password? <a onClick={() => { setMode("login"); setError(""); setSuccessMsg(""); }}>Sign in</a></>}
         </div>
       </div>
     </div>
@@ -2315,14 +2491,24 @@ function App() {
   const [page, setPage] = useState("home");
   const [qrToken, setQrToken] = useState(null);
 
+  const [resetToken, setResetToken] = useState(null);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get("token");
-    if (token) { setQrToken(token); setPage("checkin"); }
+    const path = window.location.pathname;
+    if (path === "/reset-password" && token) {
+      setResetToken(token);
+      setPage("reset-password");
+    } else if (token) {
+      setQrToken(token);
+      setPage("checkin");
+    }
   }, []);
 
   const handleAuthSuccess = () => setPage("home");
 
+  if (page === "reset-password" && resetToken) return <ResetPasswordPage token={resetToken} />;
   if (!user) return <AuthPage onSuccess={handleAuthSuccess} />;
 
   return (
