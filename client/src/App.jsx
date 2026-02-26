@@ -725,6 +725,18 @@ function Nav({ onSettings }) {
                         <span className="profile-popup-row-val">{calcAge(user.birthdate)} yrs old</span>
                       </div>
                     )}
+                    {user.school && (
+                      <div className="profile-popup-row">
+                        <span className="profile-popup-row-label">School</span>
+                        <span className="profile-popup-row-val" style={{maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.school}</span>
+                      </div>
+                    )}
+                    {user.subjectsTaught && (
+                      <div className="profile-popup-row">
+                        <span className="profile-popup-row-label">Subjects</span>
+                        <span className="profile-popup-row-val" style={{maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.subjectsTaught}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Actions */}
@@ -1832,58 +1844,130 @@ function StudentHistoryRow({ record: a }) {
 }
 
 // ─── TEACHER SETTINGS ────────────────────────────────────────────────────────
+// ─── AVATAR UPLOAD COMPONENT ──────────────────────────────────────────────────
+function AvatarUpload({ current, name, onChange }) {
+  const fileRef = useRef(null);
+
+  const handleFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 300;
+        const scale = Math.min(MAX / img.width, MAX / img.height, 1);
+        const canvas = document.createElement("canvas");
+        canvas.width  = Math.round(img.width  * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        onChange(canvas.toDataURL("image/jpeg", 0.72));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 18 }}>
+      <div className="avatar-upload-circle" onClick={() => fileRef.current?.click()}>
+        {current
+          ? <img src={current} alt="avatar" style={{ width:"100%", height:"100%", objectFit:"cover", borderRadius:"50%" }} />
+          : <span>{name?.[0]?.toUpperCase() || "?"}</span>
+        }
+        <div className="avatar-upload-overlay">📷</div>
+        <input ref={fileRef} type="file" accept="image/*" style={{ display:"none" }} onChange={handleFile} />
+      </div>
+      <div>
+        <div style={{ fontWeight:700, fontSize:"0.88rem", marginBottom:4 }}>
+          {current ? "Photo uploaded" : "No photo yet"}
+        </div>
+        <div className="avatar-upload-hint">Click to upload · Max 300×300 · JPEG</div>
+        {current && (
+          <button className="btn btn-ghost btn-sm" style={{ marginTop:8 }} onClick={() => onChange(null)}>Remove photo</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TeacherSettings({ onBack }) {
   const { user, updateUser } = useAuth();
 
   const [avatar, setAvatar] = useState(user?.profilePicture || null);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarMsg, setAvatarMsg] = useState(null);
+  const avatarChanged = avatar !== (user?.profilePicture || null);
 
-  const [nameForm, setNameForm] = useState({ name: user?.name || "" });
-  const [nameLoading, setNameLoading] = useState(false);
-  const [nameMsg, setNameMsg] = useState(null);
+  const [infoForm, setInfoForm] = useState({
+    name:           user?.name || "",
+    birthdate:      user?.birthdate ? new Date(user.birthdate).toISOString().split("T")[0] : "",
+    phoneNumber:    user?.phoneNumber || "",
+    school:         user?.school || "",
+    department:     user?.department || "",
+    subjectsTaught: user?.subjectsTaught || "",
+    yearsTeaching:  user?.yearsTeaching || "",
+  });
+  const [infoLoading, setInfoLoading] = useState(false);
+  const [infoMsg, setInfoMsg]   = useState(null);
 
   const [pwForm, setPwForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
   const [pwLoading, setPwLoading] = useState(false);
   const [pwMsg, setPwMsg] = useState(null);
 
+  const calcAge = (bd) => {
+    if (!bd) return null;
+    const today = new Date(), birth = new Date(bd);
+    let age = today.getFullYear() - birth.getFullYear();
+    if (today.getMonth() < birth.getMonth() || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) age--;
+    return age >= 0 ? age : null;
+  };
+  const age = calcAge(infoForm.birthdate);
+
   const handleAvatarSave = async () => {
     setAvatarLoading(true); setAvatarMsg(null);
     try {
       const data = await api.patch("/auth/profile", { profilePicture: avatar });
-      // Merge profilePicture directly into user so nav updates instantly
       updateUser({ ...data.user, profilePicture: avatar });
       setAvatarMsg({ type: "success", text: "Profile picture updated!" });
     } catch (err) { setAvatarMsg({ type: "error", text: err.message }); }
     finally { setAvatarLoading(false); }
   };
 
-  const handleNameSave = async (e) => {
-    e.preventDefault(); setNameLoading(true); setNameMsg(null);
+  const handleInfoSave = async (e) => {
+    e.preventDefault(); setInfoLoading(true); setInfoMsg(null);
     try {
-      const data = await api.patch("/auth/profile", { name: nameForm.name.trim() });
-      updateUser(data.user);
-      setNameMsg({ type: "success", text: "Name updated successfully!" });
-    } catch (err) { setNameMsg({ type: "error", text: err.message }); }
-    finally { setNameLoading(false); }
+      const data = await api.patch("/auth/profile", {
+        name:           infoForm.name.trim(),
+        birthdate:      infoForm.birthdate || null,
+        phoneNumber:    infoForm.phoneNumber,
+        school:         infoForm.school,
+        department:     infoForm.department,
+        subjectsTaught: infoForm.subjectsTaught,
+        yearsTeaching:  infoForm.yearsTeaching ? Number(infoForm.yearsTeaching) : null,
+      });
+      updateUser({ ...data.user, profilePicture: avatar });
+      setInfoMsg({ type: "success", text: "Profile updated!" });
+    } catch (err) { setInfoMsg({ type: "error", text: err.message }); }
+    finally { setInfoLoading(false); }
   };
 
   const handlePasswordSave = async (e) => {
     e.preventDefault(); setPwMsg(null);
     if (pwForm.newPassword !== pwForm.confirmPassword)
-      return setPwMsg({ type: "error", text: "New passwords do not match." });
+      return setPwMsg({ type: "error", text: "Passwords do not match." });
     if (pwForm.newPassword.length < 6)
-      return setPwMsg({ type: "error", text: "New password must be at least 6 characters." });
+      return setPwMsg({ type: "error", text: "Password must be at least 6 characters." });
     setPwLoading(true);
     try {
       await api.patch("/auth/profile", { currentPassword: pwForm.currentPassword, newPassword: pwForm.newPassword });
-      setPwMsg({ type: "success", text: "Password changed successfully!" });
+      setPwMsg({ type: "success", text: "Password changed!" });
       setPwForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
     } catch (err) { setPwMsg({ type: "error", text: err.message }); }
     finally { setPwLoading(false); }
   };
 
-  const avatarChanged = avatar !== (user?.profilePicture || null);
+  const inf = (k, v) => setInfoForm(f => ({ ...f, [k]: v }));
 
   return (
     <div className="main">
@@ -1891,7 +1975,7 @@ function TeacherSettings({ onBack }) {
         <div className="page-header">
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <button className="btn btn-ghost btn-sm" onClick={onBack}>← Back</button>
-            <div className="page-title-block">
+            <div>
               <h1 className="page-title">Settings</h1>
               <p className="page-sub">Manage your profile and account</p>
             </div>
@@ -1899,10 +1983,11 @@ function TeacherSettings({ onBack }) {
         </div>
 
         <div className="settings-page">
-          {/* Profile Picture Card */}
+
+          {/* ── Profile Picture ── */}
           <div className="settings-card">
-            <div className="settings-card-title">🖼 Profile Picture</div>
-            <div className="settings-card-sub">Shown in the nav bar and attendance records</div>
+            <div className="settings-card-title">Profile Picture</div>
+            <div className="settings-card-sub">Shown in the nav and to your students</div>
             {avatarMsg && <Alert type={avatarMsg.type} message={avatarMsg.text} />}
             <AvatarUpload current={avatar} name={user?.name} onChange={setAvatar} />
             <button className="btn btn-primary" onClick={handleAvatarSave} disabled={avatarLoading || !avatarChanged}>
@@ -1910,60 +1995,135 @@ function TeacherSettings({ onBack }) {
             </button>
           </div>
 
-          {/* Profile Info */}
+          {/* ── Account Info (read-only) ── */}
           <div className="settings-card">
-            <div className="settings-card-title">👤 Account Info</div>
-            <div className="settings-card-sub">Your current account details</div>
+            <div className="settings-card-title">Account Info</div>
+            <div className="settings-card-sub">Email and role cannot be changed</div>
             <div className="profile-info-row">
               <span className="profile-info-label">Email</span>
-              <span className="profile-info-value">{user?.email}</span>
+              <span className="profile-info-value">{user?.email || "—"}</span>
             </div>
             <div className="profile-info-row">
               <span className="profile-info-label">Role</span>
-              <span className="profile-info-value" style={{ textTransform: "capitalize" }}>👨‍🏫 {user?.role}</span>
+              <span className="profile-info-value" style={{ textTransform: "capitalize" }}>Teacher</span>
             </div>
+            {user?.school && (
+              <div className="profile-info-row">
+                <span className="profile-info-label">School</span>
+                <span className="profile-info-value">{user.school}</span>
+              </div>
+            )}
+            {user?.department && (
+              <div className="profile-info-row">
+                <span className="profile-info-label">Department</span>
+                <span className="profile-info-value">{user.department}</span>
+              </div>
+            )}
+            {user?.subjectsTaught && (
+              <div className="profile-info-row">
+                <span className="profile-info-label">Subjects</span>
+                <span className="profile-info-value">{user.subjectsTaught}</span>
+              </div>
+            )}
+            {user?.yearsTeaching && (
+              <div className="profile-info-row">
+                <span className="profile-info-label">Experience</span>
+                <span className="profile-info-value">{user.yearsTeaching} yr{user.yearsTeaching !== 1 ? "s" : ""} teaching</span>
+              </div>
+            )}
+            {calcAge(user?.birthdate) !== null && (
+              <div className="profile-info-row">
+                <span className="profile-info-label">Age</span>
+                <span className="profile-info-value">
+                  <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: "1.1rem", color: "var(--accent)" }}>{calcAge(user?.birthdate)}</span> yrs old
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* Change Name */}
+          {/* ── Edit Profile ── */}
           <div className="settings-card">
-            <div className="settings-card-title">✏️ Change Name</div>
-            <div className="settings-card-sub">Update your display name</div>
-            {nameMsg && <Alert type={nameMsg.type} message={nameMsg.text} />}
-            <form onSubmit={handleNameSave}>
+            <div className="settings-card-title">Edit Profile</div>
+            <div className="settings-card-sub">Update your personal and professional information</div>
+            {infoMsg && <Alert type={infoMsg.type} message={infoMsg.text} />}
+            <form onSubmit={handleInfoSave}>
+
               <div className="form-group">
                 <label className="form-label">Full Name</label>
-                <input className="form-input" value={nameForm.name} onChange={(e) => setNameForm({ name: e.target.value })} placeholder="Enter your full name" required />
+                <input className="form-input" value={infoForm.name} onChange={e => inf("name", e.target.value)} placeholder="Your full name" required />
               </div>
-              <button type="submit" className="btn btn-primary" disabled={nameLoading || nameForm.name.trim() === user?.name}>
-                {nameLoading ? <Spinner /> : "Save Name"}
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Birthdate</label>
+                  <input className="form-input" type="date" value={infoForm.birthdate} onChange={e => inf("birthdate", e.target.value)} max={new Date().toISOString().split("T")[0]} />
+                  {age !== null && (
+                    <div className="age-display">
+                      <span className="age-value">{age}</span>
+                      <span>years old</span>
+                    </div>
+                  )}
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Phone Number</label>
+                  <input className="form-input" value={infoForm.phoneNumber} onChange={e => inf("phoneNumber", e.target.value)} placeholder="e.g. 09XX-XXX-XXXX" />
+                </div>
+              </div>
+
+              <div className="divider-label"><span>Professional Info</span></div>
+
+              <div className="form-group">
+                <label className="form-label">School / Institution</label>
+                <input className="form-input" value={infoForm.school} onChange={e => inf("school", e.target.value)} placeholder="e.g. De La Salle University" />
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Department</label>
+                  <input className="form-input" value={infoForm.department} onChange={e => inf("department", e.target.value)} placeholder="e.g. Computer Science" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Years Teaching</label>
+                  <input className="form-input" type="number" min="0" max="60" value={infoForm.yearsTeaching} onChange={e => inf("yearsTeaching", e.target.value)} placeholder="e.g. 5" />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Subjects Taught</label>
+                <input className="form-input" value={infoForm.subjectsTaught} onChange={e => inf("subjectsTaught", e.target.value)} placeholder="e.g. Math, Physics, Computer Science" />
+              </div>
+
+              <button type="submit" className="btn btn-primary" disabled={infoLoading}>
+                {infoLoading ? <Spinner /> : "Save Changes"}
               </button>
             </form>
           </div>
 
-          {/* Change Password */}
+          {/* ── Change Password ── */}
           <div className="settings-card">
-            <div className="settings-card-title">🔐 Change Password</div>
+            <div className="settings-card-title">Change Password</div>
             <div className="settings-card-sub">Choose a strong password with at least 6 characters</div>
             {pwMsg && <Alert type={pwMsg.type} message={pwMsg.text} />}
             <form onSubmit={handlePasswordSave}>
               <div className="form-group">
                 <label className="form-label">Current Password</label>
-                <input className="form-input" type="password" value={pwForm.currentPassword} onChange={(e) => setPwForm(f => ({ ...f, currentPassword: e.target.value }))} placeholder="Enter current password" required />
+                <input className="form-input" type="password" value={pwForm.currentPassword} onChange={e => setPwForm(f => ({ ...f, currentPassword: e.target.value }))} placeholder="Enter current password" required />
               </div>
               <div className="divider-label"><span>New Password</span></div>
               <div className="form-group">
                 <label className="form-label">New Password</label>
-                <input className="form-input" type="password" value={pwForm.newPassword} onChange={(e) => setPwForm(f => ({ ...f, newPassword: e.target.value }))} placeholder="Min. 6 characters" required />
+                <input className="form-input" type="password" value={pwForm.newPassword} onChange={e => setPwForm(f => ({ ...f, newPassword: e.target.value }))} placeholder="Min. 6 characters" required />
               </div>
               <div className="form-group">
                 <label className="form-label">Confirm New Password</label>
-                <input className="form-input" type="password" value={pwForm.confirmPassword} onChange={(e) => setPwForm(f => ({ ...f, confirmPassword: e.target.value }))} placeholder="Repeat new password" required />
+                <input className="form-input" type="password" value={pwForm.confirmPassword} onChange={e => setPwForm(f => ({ ...f, confirmPassword: e.target.value }))} placeholder="Repeat new password" required />
               </div>
               <button type="submit" className="btn btn-primary" disabled={pwLoading}>
                 {pwLoading ? <Spinner /> : "Change Password"}
               </button>
             </form>
           </div>
+
         </div>
       </div>
     </div>
