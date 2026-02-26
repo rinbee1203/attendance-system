@@ -1,7 +1,40 @@
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
-const nodemailer = require("nodemailer");
+const https = require("https");
 const User = require("../models/User");
+
+// ── Send email via Resend API (uses Node built-in https — no extra package) ──
+const sendEmail = ({ to, subject, html }) => new Promise((resolve, reject) => {
+  const body = JSON.stringify({
+    from: "AttendQR <onboarding@resend.dev>",
+    to,
+    subject,
+    html,
+  });
+  const req = https.request({
+    hostname: "api.resend.com",
+    path: "/emails",
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(body),
+    },
+  }, (res) => {
+    let data = "";
+    res.on("data", chunk => data += chunk);
+    res.on("end", () => {
+      try {
+        const parsed = JSON.parse(data);
+        if (res.statusCode >= 200 && res.statusCode < 300) resolve(parsed);
+        else reject(new Error(parsed?.message || `Email send failed: ${res.statusCode}`));
+      } catch(e) { reject(e); }
+    });
+  });
+  req.on("error", reject);
+  req.write(body);
+  req.end();
+});
 
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret_change_in_production";
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
@@ -213,30 +246,20 @@ const forgotPassword = async (req, res) => {
     const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
     const resetUrl = `${CLIENT_URL}/reset-password?token=${token}`;
 
-    // Send email via nodemailer
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
-
-    await transporter.sendMail({
-      from: `"AttendQR" <${process.env.EMAIL_USER}>`,
+    await sendEmail({
       to: user.email,
       subject: "Reset your AttendQR password",
       html: `
-        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#0a0a1a;color:#eeeef8;border-radius:16px;">
-          <div style="width:48px;height:48px;background:linear-gradient(135deg,#7c6fff,#ff6b8a);border-radius:14px;display:flex;align-items:center;justify-content:center;margin-bottom:24px;">
-            <span style="font-size:22px;">✔</span>
+        <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#f5f5ff;border-radius:16px;">
+          <div style="background:linear-gradient(135deg,#7c6fff,#ff6b8a);border-radius:14px;padding:12px 18px;display:inline-block;margin-bottom:24px;">
+            <span style="color:#fff;font-weight:800;font-size:1.1rem;">AttendQR</span>
           </div>
-          <h2 style="margin:0 0 8px;font-size:1.4rem;">Reset your password</h2>
-          <p style="color:#9494b8;margin:0 0 28px;font-size:0.9rem;">Hi ${user.name}, we received a request to reset your AttendQR password. Click the button below to set a new one.</p>
-          <a href="${resetUrl}" style="display:inline-block;background:#7c6fff;color:#fff;text-decoration:none;padding:13px 28px;border-radius:10px;font-weight:700;font-size:0.95rem;margin-bottom:24px;">Reset Password</a>
-          <p style="color:#52527a;font-size:0.8rem;margin:0;">This link expires in <strong style="color:#9494b8;">1 hour</strong>. If you didn't request this, you can safely ignore this email.</p>
-          <hr style="border:none;border-top:1px solid rgba(255,255,255,0.07);margin:24px 0;">
-          <p style="color:#52527a;font-size:0.75rem;margin:0;">AttendQR · QR-based Attendance System</p>
+          <h2 style="color:#1a1a2e;margin:0 0 8px;font-size:1.4rem;">Reset your password</h2>
+          <p style="color:#555;margin:0 0 28px;font-size:0.9rem;">Hi <strong>${user.name}</strong>, we received a request to reset your AttendQR password. Click the button below to set a new one.</p>
+          <a href="${resetUrl}" style="display:inline-block;background:#7c6fff;color:#fff;text-decoration:none;padding:14px 32px;border-radius:10px;font-weight:700;font-size:1rem;margin-bottom:24px;">Reset Password</a>
+          <p style="color:#888;font-size:0.8rem;margin:0;">This link expires in <strong>1 hour</strong>. If you didn't request this, you can safely ignore this email.</p>
+          <hr style="border:none;border-top:1px solid #e0e0f0;margin:24px 0;">
+          <p style="color:#aaa;font-size:0.75rem;margin:0;">AttendQR · QR-based Attendance System</p>
         </div>
       `,
     });
