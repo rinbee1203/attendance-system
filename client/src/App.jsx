@@ -103,8 +103,7 @@ function exportStudentBySubject(records, subjectName, studentName) {
       ts.toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" }),
       ts.toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila" })];
   });
-  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("
-");
+  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("\n");
   download(csv, `${safe(studentName)}_${safe(subjectName)}_${todayStr()}.csv`);
 }
 
@@ -125,8 +124,7 @@ function exportStudentByMonth(records, monthLabel, studentName) {
       ts.toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" }),
       ts.toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila" })];
   });
-  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("
-");
+  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("\n");
   download(csv, `${safe(studentName)}_${safe(monthLabel)}_${todayStr()}.csv`);
 }
 
@@ -149,8 +147,7 @@ function exportTeacherByDay(records, dayLabel, session) {
       a.status === "present" ? "Present" : "Late",
       ts.toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila" })];
   });
-  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("
-");
+  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("\n");
   download(csv, `${safe(session?.subject)}_${safe(dayLabel)}_daily.csv`);
 }
 
@@ -172,8 +169,7 @@ function exportTeacherByMonth(records, monthLabel, session) {
       ts.toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" }),
       ts.toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila" })];
   });
-  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("
-");
+  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("\n");
   download(csv, `${safe(session?.subject)}_${safe(monthLabel)}_monthly.csv`);
 }
 
@@ -202,8 +198,7 @@ function exportTeacherFullSession(records, session) {
       ts.toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" }),
       ts.toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila" })];
   });
-  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("
-");
+  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("\n");
   download(csv, `${safe(session?.subject)}_full_session_${todayStr()}.csv`);
 }
 
