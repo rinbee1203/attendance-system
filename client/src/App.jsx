@@ -174,7 +174,7 @@ function exportTeacherByMonth(records, monthLabel, session) {
 }
 
 // Teacher: export full session (all time)
-function exportTeacherFullSession(records, session) {
+function exportSessionFull(records, session) {
   const countByStudent = records.reduce((acc, a) => {
     const key = a.student?._id || a.student?.studentId || "?";
     acc[key] = (acc[key] || 0) + 1;
@@ -203,25 +203,25 @@ function exportTeacherFullSession(records, session) {
 }
 
 // Legacy wrappers (still used in some places)
-function exportToExcel(attendance, sessionInfo) { exportTeacherFullSession(attendance, sessionInfo); }
+function exportToExcel(attendance, sessionInfo) { exportSessionFull(attendance, sessionInfo); }
 function exportStudentHistoryToExcel(attendance, studentName) {
   const month = new Date().toLocaleDateString("en-PH", { year:"numeric", month:"long" });
   exportStudentByMonth(attendance, month, studentName);
 }
 // ─── DATE HELPERS ─────────────────────────────────────────────────────────────
-const PH_TZ = { timeZone: "Asia/Manila" };
+const PH = { timeZone: "Asia/Manila" };
 
 function formatDate(date) {
-  return new Date(date).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric", ...PH_TZ });
+  return new Date(date).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric", ...PH });
 }
 function formatDateTime(date) {
   return new Date(date).toLocaleString("en-PH", {
     year: "numeric", month: "short", day: "numeric",
-    hour: "2-digit", minute: "2-digit", ...PH_TZ,
+    hour: "2-digit", minute: "2-digit", ...PH,
   });
 }
 function formatTime(date) {
-  return new Date(date).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", ...PH_TZ });
+  return new Date(date).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", ...PH });
 }
 function getDefaultEndDate() {
   const d = new Date();
@@ -1069,11 +1069,11 @@ function StudentInfoModal({ student, onClose }) {
 function AttendanceAccordion({ records, onStudentClick }) {
   const grouped = records.reduce((acc, a) => {
     const ts = new Date(a.timestamp);
-    const monthKey = ts.toLocaleDateString("en-PH", { year: "numeric", month: "long", timeZone: "Asia/Manila" });
-    const dayKey   = ts.toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Manila" });
-    if (!acc[monthKey]) acc[monthKey] = {};
-    if (!acc[monthKey][dayKey]) acc[monthKey][dayKey] = [];
-    acc[monthKey][dayKey].push(a);
+    const mKey = ts.toLocaleDateString("en-PH", { year:"numeric", month:"long", timeZone:"Asia/Manila" });
+    const dKey = ts.toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" });
+    if (!acc[mKey]) acc[mKey] = {};
+    if (!acc[mKey][dKey]) acc[mKey][dKey] = [];
+    acc[mKey][dKey].push(a);
     return acc;
   }, {});
 
@@ -1331,12 +1331,12 @@ function TeacherDashboard() {
                       <button className="btn btn-excel btn-sm" onClick={() => exportSessionFull(filteredAttendance, viewSession)} title="Export all records for this session">⬇ Full</button>
                       <button className="btn btn-excel btn-sm" onClick={() => {
                         // export each month separately
-                        const byMo = filteredAttendance.reduce((acc, a) => { const k = monthKey(a.timestamp); if(!acc[k]) acc[k]=[]; acc[k].push(a); return acc; }, {});
+                        const byMo = filteredAttendance.reduce((acc, a) => { const k = new Date(a.timestamp).toLocaleDateString("en-PH",{year:"numeric",month:"long",timeZone:"Asia/Manila"}); if(!acc[k]) acc[k]=[]; acc[k].push(a); return acc; }, {});
                         Object.entries(byMo).forEach(([mo, recs]) => exportSessionByMonth(recs, viewSession, mo));
                       }} title="Export one file per month">⬇ Monthly</button>
                       <button className="btn btn-excel btn-sm" onClick={() => {
                         // export each day separately
-                        const byD = filteredAttendance.reduce((acc, a) => { const k = dayKey(a.timestamp); if(!acc[k]) acc[k]=[]; acc[k].push(a); return acc; }, {});
+                        const byD = filteredAttendance.reduce((acc, a) => { const k = new Date(a.timestamp).toLocaleDateString("en-PH",{year:"numeric",month:"long",day:"numeric",timeZone:"Asia/Manila"}); if(!acc[k]) acc[k]=[]; acc[k].push(a); return acc; }, {});
                         Object.entries(byD).forEach(([d, recs]) => exportSessionByDay(recs, viewSession, d));
                       }} title="Export one file per day">⬇ Daily</button>
                     </div>
@@ -1571,8 +1571,8 @@ function StudentDashboard() {
   // ── Group by SUBJECT → month → day ──────────────────────────────────────────
   const bySubject = filtered.reduce((acc, a) => {
     const subj = a.session?.subject || "Unknown Subject";
-    const mo   = monthKey(a.timestamp);
-    const day  = dayKey(a.timestamp);
+    const mo   = new Date(a.timestamp).toLocaleDateString("en-PH",{year:"numeric",month:"long",timeZone:"Asia/Manila"});
+    const day  = new Date(a.timestamp).toLocaleDateString("en-PH",{year:"numeric",month:"long",day:"numeric",timeZone:"Asia/Manila"});  // uses dayKey helper
     if (!acc[subj]) acc[subj] = {};
     if (!acc[subj][mo]) acc[subj][mo] = {};
     if (!acc[subj][mo][day]) acc[subj][mo][day] = [];
@@ -1582,8 +1582,8 @@ function StudentDashboard() {
 
   // ── Group by MONTH → day ─────────────────────────────────────────────────────
   const byMonth = filtered.reduce((acc, a) => {
-    const mo  = monthKey(a.timestamp);
-    const day = dayKey(a.timestamp);
+    const mo  = new Date(a.timestamp).toLocaleDateString("en-PH",{year:"numeric",month:"long",timeZone:"Asia/Manila"});
+    const day = new Date(a.timestamp).toLocaleDateString("en-PH",{year:"numeric",month:"long",day:"numeric",timeZone:"Asia/Manila"});
     if (!acc[mo]) acc[mo] = {};
     if (!acc[mo][day]) acc[mo][day] = [];
     acc[mo][day].push(a);
