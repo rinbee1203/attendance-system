@@ -69,94 +69,150 @@ function AuthProvider({ children }) {
 }
 
 // ─── EXCEL EXPORT UTILITY ─────────────────────────────────────────────────────
-function exportToExcel(attendance, sessionInfo) {
-  const bom = "\uFEFF";
 
-  // Title / metadata rows at top of sheet
-  const titleRows = [
-    [`"Attendance Report"`],
-    [`"Session:", "${sessionInfo?.subject || "N/A"}"`],
-    [`"Room:", "${sessionInfo?.room || "N/A"}"`],
-    [`"Date Exported:", "${new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}"`],
-    [`"Total Records:", "${attendance.length}"`],
-    [`""`], // blank spacer
+// ── Shared helpers ──
+const BOM = "\uFEFF";
+const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+const csvRow = (arr) => arr.map(esc).join(",");
+const download = (content, filename) => {
+  const blob = new Blob([BOM + content], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+};
+const safe = (s) => (s || "file").replace(/[^a-z0-9]/gi, "_").toLowerCase();
+const todayStr = () => new Date().toISOString().split("T")[0];
+
+// ── STUDENT exports ──
+
+// Student: export by subject (one subject's full history)
+function exportStudentBySubject(records, subjectName, studentName) {
+  const title = [
+    [`Attendance Report — ${subjectName}`],
+    [`Student: ${studentName}`],
+    [`Exported: ${new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}`],
+    [`Total Records: ${records.length}`],
+    [],
   ];
+  const headers = ["#", "Subject", "Room", "Teacher", "Status", "Date", "Time"];
+  const rows = records.map((a, i) => {
+    const ts = new Date(a.timestamp);
+    return [i+1, a.session?.subject||"N/A", a.session?.room||"N/A", a.session?.teacher?.name||"N/A",
+      a.status === "present" ? "Present" : "Late",
+      ts.toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" }),
+      ts.toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila" })];
+  });
+  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("
+");
+  download(csv, `${safe(studentName)}_${safe(subjectName)}_${todayStr()}.csv`);
+}
 
-  const headers = ["No.", "Student Name", "Student ID", "Grade", "Section", "Sessions Attended", "Status", "Date", "Time"];
+// Student: export by month (one month's records across all subjects)
+function exportStudentByMonth(records, monthLabel, studentName) {
+  const title = [
+    [`Attendance Report — ${monthLabel}`],
+    [`Student: ${studentName}`],
+    [`Exported: ${new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}`],
+    [`Total Records: ${records.length}`],
+    [],
+  ];
+  const headers = ["#", "Subject", "Room", "Teacher", "Status", "Date", "Time"];
+  const rows = records.map((a, i) => {
+    const ts = new Date(a.timestamp);
+    return [i+1, a.session?.subject||"N/A", a.session?.room||"N/A", a.session?.teacher?.name||"N/A",
+      a.status === "present" ? "Present" : "Late",
+      ts.toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" }),
+      ts.toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila" })];
+  });
+  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("
+");
+  download(csv, `${safe(studentName)}_${safe(monthLabel)}_${todayStr()}.csv`);
+}
 
-  // Count per-student attendance appearances in this list
-  const countByStudent = attendance.reduce((acc, a) => {
-    const key = a.student?._id || a.student?.studentId || a.student?.name || "?";
+// ── TEACHER exports ──
+
+// Teacher: export by specific day
+function exportTeacherByDay(records, dayLabel, session) {
+  const title = [
+    [`Daily Attendance Report — ${dayLabel}`],
+    [`Session: ${session?.subject||"N/A"}`, `Room: ${session?.room||"N/A"}`],
+    [`Exported: ${new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}`],
+    [`Total Records: ${records.length}`],
+    [],
+  ];
+  const headers = ["#", "Student Name", "Student ID", "Grade", "Section", "Status", "Time"];
+  const rows = records.map((a, i) => {
+    const ts = new Date(a.timestamp);
+    return [i+1, a.student?.name||"N/A", a.student?.studentId||"N/A",
+      a.student?.grade||"N/A", a.student?.section||"N/A",
+      a.status === "present" ? "Present" : "Late",
+      ts.toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila" })];
+  });
+  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("
+");
+  download(csv, `${safe(session?.subject)}_${safe(dayLabel)}_daily.csv`);
+}
+
+// Teacher: export by month
+function exportTeacherByMonth(records, monthLabel, session) {
+  const title = [
+    [`Monthly Attendance Report — ${monthLabel}`],
+    [`Session: ${session?.subject||"N/A"}`, `Room: ${session?.room||"N/A"}`],
+    [`Exported: ${new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}`],
+    [`Total Records: ${records.length}`],
+    [],
+  ];
+  const headers = ["#", "Student Name", "Student ID", "Grade", "Section", "Status", "Date", "Time"];
+  const rows = records.map((a, i) => {
+    const ts = new Date(a.timestamp);
+    return [i+1, a.student?.name||"N/A", a.student?.studentId||"N/A",
+      a.student?.grade||"N/A", a.student?.section||"N/A",
+      a.status === "present" ? "Present" : "Late",
+      ts.toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" }),
+      ts.toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila" })];
+  });
+  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("
+");
+  download(csv, `${safe(session?.subject)}_${safe(monthLabel)}_monthly.csv`);
+}
+
+// Teacher: export full session (all time)
+function exportTeacherFullSession(records, session) {
+  const countByStudent = records.reduce((acc, a) => {
+    const key = a.student?._id || a.student?.studentId || "?";
     acc[key] = (acc[key] || 0) + 1;
     return acc;
   }, {});
-
-  const rows = attendance.map((a, i) => {
+  const title = [
+    [`Full Session Attendance — ${session?.subject||"N/A"}`],
+    [`Room: ${session?.room||"N/A"}`, `Created: ${session?.createdAt ? new Date(session.createdAt).toLocaleDateString("en-PH", {year:"numeric",month:"long",day:"numeric"}) : "N/A"}`],
+    [`Exported: ${new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}`],
+    [`Total Records: ${records.length}`],
+    [],
+  ];
+  const headers = ["#", "Student Name", "Student ID", "Grade", "Section", "Sessions Attended", "Status", "Date", "Time"];
+  const rows = records.map((a, i) => {
     const ts = new Date(a.timestamp);
-    const key = a.student?._id || a.student?.studentId || a.student?.name || "?";
-    return [
-      i + 1,
-      a.student?.name || "N/A",
-      a.student?.studentId || "N/A",
-      a.student?.grade || "N/A",
-      a.student?.section || "N/A",
-      countByStudent[key] || 1,
+    const key = a.student?._id || a.student?.studentId || "?";
+    return [i+1, a.student?.name||"N/A", a.student?.studentId||"N/A",
+      a.student?.grade||"N/A", a.student?.section||"N/A",
+      countByStudent[key]||1,
       a.status === "present" ? "Present" : "Late",
-      ts.toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Manila" }),
-      ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Manila" }),
-    ];
+      ts.toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" }),
+      ts.toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila" })];
   });
-
-  // Title rows are already quoted strings, data rows need escaping
-  const titleCsv = titleRows.map((row) => row.join(",")).join("\n");
-  const headerCsv = headers.map((h) => `"${h}"`).join(",");
-  const dataCsv = rows
-    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
-    .join("\n");
-
-  const csvContent = [titleCsv, headerCsv, dataCsv].join("\n");
-
-  const blob = new Blob([bom + csvContent], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  const safeName = (sessionInfo?.subject || "attendance").replace(/[^a-z0-9]/gi, "_").toLowerCase();
-  const dateStr = new Date().toISOString().split("T")[0];
-  link.href = url;
-  link.download = `${safeName}_attendance_${dateStr}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
+  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("
+");
+  download(csv, `${safe(session?.subject)}_full_session_${todayStr()}.csv`);
 }
 
+// Legacy wrappers (still used in some places)
+function exportToExcel(attendance, sessionInfo) { exportTeacherFullSession(attendance, sessionInfo); }
 function exportStudentHistoryToExcel(attendance, studentName) {
-  const bom = "\uFEFF";
-  const headers = ["Subject", "Room", "Teacher", "Status", "Date", "Time"];
-  const rows = attendance.map((a) => {
-    const ts = new Date(a.timestamp);
-    return [
-      a.session?.subject || "N/A",
-      a.session?.room || "N/A",
-      a.session?.teacher?.name || "N/A",
-      a.status === "present" ? "Present" : "Late",
-      ts.toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Manila" }),
-      ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Manila" }),
-    ];
-  });
-
-  const csvContent = [headers, ...rows]
-    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
-    .join("\n");
-
-  const blob = new Blob([bom + csvContent], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  const safeName = (studentName || "student").replace(/[^a-z0-9]/gi, "_").toLowerCase();
-  const dateStr = new Date().toISOString().split("T")[0];
-  link.href = url;
-  link.download = `${safeName}_attendance_history_${dateStr}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
+  const month = new Date().toLocaleDateString("en-PH", { year:"numeric", month:"long" });
+  exportStudentByMonth(attendance, month, studentName);
 }
-
 // ─── DATE HELPERS ─────────────────────────────────────────────────────────────
 const PH_TZ = { timeZone: "Asia/Manila" };
 
@@ -1276,12 +1332,19 @@ function TeacherDashboard() {
                         </span>
                       ))}
                     </div>
-                    <button
-                      className="btn btn-excel btn-sm"
-                      onClick={() => exportToExcel(filteredAttendance, viewSession)}
-                    >
-                      ⬇ Export Excel
-                    </button>
+                    <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                      <button className="btn btn-excel btn-sm" onClick={() => exportSessionFull(filteredAttendance, viewSession)} title="Export all records for this session">⬇ Full</button>
+                      <button className="btn btn-excel btn-sm" onClick={() => {
+                        // export each month separately
+                        const byMo = filteredAttendance.reduce((acc, a) => { const k = monthKey(a.timestamp); if(!acc[k]) acc[k]=[]; acc[k].push(a); return acc; }, {});
+                        Object.entries(byMo).forEach(([mo, recs]) => exportSessionByMonth(recs, viewSession, mo));
+                      }} title="Export one file per month">⬇ Monthly</button>
+                      <button className="btn btn-excel btn-sm" onClick={() => {
+                        // export each day separately
+                        const byD = filteredAttendance.reduce((acc, a) => { const k = dayKey(a.timestamp); if(!acc[k]) acc[k]=[]; acc[k].push(a); return acc; }, {});
+                        Object.entries(byD).forEach(([d, recs]) => exportSessionByDay(recs, viewSession, d));
+                      }} title="Export one file per day">⬇ Daily</button>
+                    </div>
                   </>
                 )}
               </div>
@@ -1487,35 +1550,60 @@ function StudentDashboard() {
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  // "subject" | "date" — top-level grouping mode
+  const [groupMode, setGroupMode] = useState("subject");
+  // accordion open state
+  const [openSubjects, setOpenSubjects] = useState({});
+  const [openMonths, setOpenMonths]   = useState({});
+  const [openDays, setOpenDays]       = useState({});
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const data = await api.get("/attendance/my");
-        setAttendance(data.attendance);
-      } catch (err) { console.error(err); }
-      finally { setLoading(false); }
-    };
-    fetchData();
+    api.get("/attendance/my")
+      .then(d => { setAttendance(d.attendance); setLoading(false); })
+      .catch(() => setLoading(false));
   }, []);
 
-  const present = attendance.filter((a) => a.status === "present").length;
-  const late = attendance.filter((a) => a.status === "late").length;
-  const rate = attendance.length > 0 ? Math.round((present / attendance.length) * 100) : 0;
+  const present = attendance.filter(a => a.status === "present").length;
+  const late    = attendance.filter(a => a.status === "late").length;
+  const rate    = attendance.length > 0 ? Math.round((present / attendance.length) * 100) : 0;
 
-  const filtered = attendance.filter((a) => {
+  const filtered = attendance.filter(a => {
     const matchStatus = filterStatus === "all" || a.status === filterStatus;
-    const matchSearch = !searchQuery || a.session?.subject?.toLowerCase().includes(searchQuery.toLowerCase()) || a.session?.room?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchSearch = !searchQuery || a.session?.subject?.toLowerCase().includes(searchQuery.toLowerCase());
     return matchStatus && matchSearch;
   });
 
-  // Group by month for display
-  const grouped = filtered.reduce((acc, a) => {
-    const month = new Date(a.timestamp).toLocaleString("en-PH", { month: "long", year: "numeric" });
-    if (!acc[month]) acc[month] = [];
-    acc[month].push(a);
+  // ── Group by SUBJECT → month → day ──────────────────────────────────────────
+  const bySubject = filtered.reduce((acc, a) => {
+    const subj = a.session?.subject || "Unknown Subject";
+    const mo   = monthKey(a.timestamp);
+    const day  = dayKey(a.timestamp);
+    if (!acc[subj]) acc[subj] = {};
+    if (!acc[subj][mo]) acc[subj][mo] = {};
+    if (!acc[subj][mo][day]) acc[subj][mo][day] = [];
+    acc[subj][mo][day].push(a);
     return acc;
   }, {});
+
+  // ── Group by MONTH → day ─────────────────────────────────────────────────────
+  const byMonth = filtered.reduce((acc, a) => {
+    const mo  = monthKey(a.timestamp);
+    const day = dayKey(a.timestamp);
+    if (!acc[mo]) acc[mo] = {};
+    if (!acc[mo][day]) acc[mo][day] = [];
+    acc[mo][day].push(a);
+    return acc;
+  }, {});
+
+  const sortedMonths = Object.keys(byMonth).sort((a,b) => new Date(b) - new Date(a));
+  const sortedSubjects = Object.keys(bySubject).sort();
+
+  const toggleSubj  = k => setOpenSubjects(p => ({ ...p, [k]: !p[k] }));
+  const toggleMonth = k => setOpenMonths(p => ({ ...p, [k]: !p[k] }));
+  const toggleDay   = k => setOpenDays(p => ({ ...p, [k]: !p[k] }));
+
+  // Flatten a subject→month→day tree into flat array
+  const flattenSubj = (subjData) => Object.values(subjData).flatMap(mo => Object.values(mo).flat());
 
   return (
     <div className="main">
@@ -1525,16 +1613,11 @@ function StudentDashboard() {
             <h1 className="page-title">My Attendance</h1>
             <p className="page-sub">Track your class attendance history</p>
           </div>
-          {attendance.length > 0 && (
-            <button className="btn btn-excel btn-sm" onClick={() => exportStudentHistoryToExcel(filtered, user?.name)}>
-              ⬇ Export to Excel
-            </button>
-          )}
         </div>
 
         <div className="stats-grid">
           <div className="stat-card" style={{ "--stat-color": "var(--accent)" }}>
-            <div className="stat-label">Total Sessions</div>
+            <div className="stat-label">Total</div>
             <div className="stat-value">{attendance.length}</div>
           </div>
           <div className="stat-card" style={{ "--stat-color": "var(--green)" }}>
@@ -1546,142 +1629,209 @@ function StudentDashboard() {
             <div className="stat-value">{late}</div>
           </div>
           <div className="stat-card" style={{ "--stat-color": "var(--blue)" }}>
-            <div className="stat-label">Attendance Rate</div>
+            <div className="stat-label">Rate</div>
             <div className="stat-value">{rate}%</div>
-            <div className="stat-sub">on-time ratio</div>
+            <div className="stat-sub">on-time</div>
           </div>
         </div>
 
-        <div className="section-header">
-          <div className="section-title">📅 History</div>
-          <div className="export-info">{filtered.length} record{filtered.length !== 1 ? "s" : ""}</div>
-        </div>
-
-        {/* Filters & Search */}
-        <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
-          <div className="history-filters" style={{ margin: 0, flex: 1, minWidth: 200 }}>
-            {["all", "present", "late"].map((f) => (
-              <span key={f} className={`filter-chip ${filterStatus === f ? "active" : ""}`} onClick={() => setFilterStatus(f)}>
-                {f === "all" ? `All (${attendance.length})` : f === "present" ? `✓ Present (${present})` : `⏰ Late (${late})`}
+        {/* Controls row */}
+        <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+          {/* Status filters */}
+          <div className="history-filters">
+            {["all","present","late"].map(f => (
+              <span key={f} className={`filter-chip ${filterStatus===f?"active":""}`} onClick={() => setFilterStatus(f)}>
+                {f==="all"?`All (${attendance.length})`:f==="present"?`✓ Present (${present})`:`⏰ Late (${late})`}
               </span>
             ))}
           </div>
-          <input
-            className="form-input"
-            style={{ maxWidth: 220, padding: "7px 12px", fontSize: "0.82rem" }}
-            placeholder="Search subject…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+          {/* Group mode toggle */}
+          <div style={{ display:"flex", background:"var(--surface2)", border:"1px solid var(--border)", borderRadius:"var(--radius-sm)", padding:3, gap:3 }}>
+            {[["subject","📚 By Subject"],["date","📅 By Date"]].map(([m,label]) => (
+              <button key={m} onClick={() => setGroupMode(m)} style={{ padding:"5px 13px", borderRadius:7, border:"none", background: groupMode===m ? "var(--accent)" : "transparent", color: groupMode===m ? "#fff" : "var(--text-dim)", fontFamily:"var(--font-body)", fontSize:"0.78rem", fontWeight:700, cursor:"pointer", transition:"all 0.15s" }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {/* Search */}
+          <input className="form-input" style={{ maxWidth:200, padding:"7px 12px", fontSize:"0.82rem" }} placeholder="Search subject…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
         </div>
 
         {loading ? (
           <div className="loading-page"><Spinner size={28} /></div>
         ) : filtered.length === 0 ? (
           <div className="empty">
-            <div className="empty-icon">{attendance.length === 0 ? "📭" : "🔍"}</div>
-            <div className="empty-text">
-              {attendance.length === 0
-                ? "No attendance records yet.\nScan a QR code to mark your attendance!"
-                : "No records match your filters."}
-            </div>
+            <div className="empty-icon">{attendance.length===0?"📭":"🔍"}</div>
+            <div className="empty-text">{attendance.length===0?"No attendance records yet.\nScan a QR code to get started!":"No records match your filters."}</div>
+          </div>
+        ) : groupMode === "subject" ? (
+          /* ── BY SUBJECT view ── */
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {sortedSubjects.map(subj => {
+              const subjRecords = flattenSubj(bySubject[subj]);
+              const isOpen = !!openSubjects[subj];
+              const pCount = subjRecords.filter(r=>r.status==="present").length;
+              const lCount = subjRecords.filter(r=>r.status==="late").length;
+              const months = Object.keys(bySubject[subj]).sort((a,b) => new Date(b)-new Date(a));
+
+              return (
+                <div key={subj} className="accordion-month">
+                  {/* Subject header */}
+                  <div className="accordion-month-header" onClick={() => toggleSubj(subj)}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10, flex:1, minWidth:0 }}>
+                      <span style={{ fontSize:"1.1rem" }}>📚</span>
+                      <span style={{ fontFamily:"var(--font-heading)", fontWeight:700, fontSize:"0.95rem", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{subj}</span>
+                      <span style={{ background:"var(--surface3)", border:"1px solid var(--border)", borderRadius:20, padding:"2px 10px", fontSize:"0.72rem", fontWeight:600, color:"var(--text-dim)", flexShrink:0 }}>
+                        {subjRecords.length} record{subjRecords.length!==1?"s":""}
+                      </span>
+                      {pCount>0 && <span className="badge badge-present" style={{flexShrink:0}}>✓ {pCount}</span>}
+                      {lCount>0 && <span className="badge badge-late" style={{flexShrink:0}}>⏰ {lCount}</span>}
+                    </div>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
+                      <button className="btn btn-excel btn-sm" onClick={e => { e.stopPropagation(); exportStudentBySubject(subjRecords, subj, user?.name); }} title="Export this subject">⬇ CSV</button>
+                      <span className={`accordion-chevron ${isOpen?"open":""}`}>▼</span>
+                    </div>
+                  </div>
+
+                  {/* Months inside subject */}
+                  {isOpen && (
+                    <div style={{ padding:"10px 14px", display:"flex", flexDirection:"column", gap:8, background:"var(--surface)" }}>
+                      {months.map(mo => {
+                        const moKey = `${subj}__${mo}`;
+                        const isMoOpen = !!openMonths[moKey];
+                        const days = Object.keys(bySubject[subj][mo]).sort((a,b) => new Date(b)-new Date(a));
+                        const moRecords = days.flatMap(d => bySubject[subj][mo][d]);
+
+                        return (
+                          <div key={mo} className="accordion-day">
+                            <div className="accordion-day-header" onClick={() => toggleMonth(moKey)}>
+                              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                                <span style={{ fontSize:"0.85rem" }}>📆</span>
+                                <span style={{ fontWeight:700, fontSize:"0.86rem" }}>{mo}</span>
+                                <span style={{ fontSize:"0.73rem", color:"var(--muted)" }}>{moRecords.length} records</span>
+                              </div>
+                              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                                <button className="btn btn-excel btn-sm" onClick={e => { e.stopPropagation(); exportStudentByMonth(moRecords, mo, user?.name); }} title="Export this month">⬇ CSV</button>
+                                <span className={`accordion-chevron ${isMoOpen?"open":""}`}>▼</span>
+                              </div>
+                            </div>
+                            {isMoOpen && (
+                              <div style={{ padding:"8px 10px", display:"flex", flexDirection:"column", gap:6, background:"var(--surface)" }}>
+                                {days.map(day => {
+                                  const dayKey2 = `${subj}__${mo}__${day}`;
+                                  const isDayOpen = !!openDays[dayKey2];
+                                  const dayRecs = bySubject[subj][mo][day];
+                                  return (
+                                    <div key={day} style={{ border:"1px solid var(--border)", borderRadius:"var(--radius-xs)", overflow:"hidden" }}>
+                                      <div onClick={() => toggleDay(dayKey2)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"8px 12px", background:"var(--surface2)", cursor:"pointer" }}
+                                        onMouseEnter={e=>e.currentTarget.style.background="var(--surface3)"}
+                                        onMouseLeave={e=>e.currentTarget.style.background="var(--surface2)"}>
+                                        <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+                                          <span style={{ fontSize:"0.78rem" }}>📅</span>
+                                          <span style={{ fontWeight:700, fontSize:"0.82rem" }}>{day}</span>
+                                          <span style={{ fontSize:"0.71rem", color:"var(--muted)" }}>{dayRecs.length} record{dayRecs.length!==1?"s":""}</span>
+                                        </div>
+                                        <span className={`accordion-chevron ${isDayOpen?"open":""}`}>▼</span>
+                                      </div>
+                                      {isDayOpen && (
+                                        <div style={{ padding:"8px 12px", display:"flex", flexDirection:"column", gap:6 }}>
+                                          {dayRecs.map(a => (
+                                            <StudentHistoryRow key={a._id} record={a} />
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         ) : (
-          Object.entries(grouped).map(([month, records]) => (
-            <div key={month} style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
-                <span>{month}</span>
-                <span style={{ background: "var(--surface2)", borderRadius: 20, padding: "1px 8px", fontWeight: 600 }}>{records.length}</span>
-              </div>
-              <div className="history-list">
-                {records.map((a) => {
-                  const ts = new Date(a.timestamp);
-                  return (
-                    <div key={a._id} className="history-item">
-                      <div className={`history-dot ${a.status}`} />
-                      <div className="history-body">
-                        <div className="history-subject">{a.session?.subject || "Unknown Subject"}</div>
-                        <div className="history-meta">
-                          {a.session?.room && <span>📍 {a.session.room}</span>}
-                          {a.session?.teacher?.name && <span>👨‍🏫 {a.session.teacher.name}</span>}
-                        </div>
-                      </div>
-                      <div className="history-side">
-                        <div style={{ textAlign: "right" }}>
-                          <span className={`badge badge-${a.status}`} style={{ marginBottom: 6, display: "inline-flex" }}>
-                            {a.status === "present" ? "✓ Present" : "⏰ Late"}
-                          </span>
-                          <div className="history-date">
-                            <div className="history-date-main">{ts.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila" })}</div>
-                            <div className="history-date-time">{ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Manila" })}</div>
-                          </div>
-                        </div>
-                      </div>
+          /* ── BY DATE view ── */
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {sortedMonths.map(mo => {
+              const isMoOpen = !!openMonths[mo];
+              const days = Object.keys(byMonth[mo]).sort((a,b) => new Date(b)-new Date(a));
+              const moRecords = days.flatMap(d => byMonth[mo][d]);
+
+              return (
+                <div key={mo} className="accordion-month">
+                  <div className="accordion-month-header" onClick={() => toggleMonth(mo)}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                      <span style={{ fontSize:"1rem" }}>📆</span>
+                      <span style={{ fontFamily:"var(--font-heading)", fontWeight:700, fontSize:"0.95rem" }}>{mo}</span>
+                      <span style={{ background:"var(--surface3)", border:"1px solid var(--border)", borderRadius:20, padding:"2px 10px", fontSize:"0.72rem", fontWeight:600, color:"var(--text-dim)" }}>
+                        {moRecords.length} records
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))
+                    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                      <button className="btn btn-excel btn-sm" onClick={e => { e.stopPropagation(); exportStudentByMonth(moRecords, mo, user?.name); }} title="Export this month">⬇ CSV</button>
+                      <span className={`accordion-chevron ${isMoOpen?"open":""}`}>▼</span>
+                    </div>
+                  </div>
+
+                  {isMoOpen && (
+                    <div style={{ padding:"10px 14px", display:"flex", flexDirection:"column", gap:8, background:"var(--surface)" }}>
+                      {days.map(day => {
+                        const dayKey2 = `${mo}__${day}`;
+                        const isDayOpen = !!openDays[dayKey2];
+                        const dayRecs = byMonth[mo][day];
+                        return (
+                          <div key={day} className="accordion-day">
+                            <div className="accordion-day-header" onClick={() => toggleDay(dayKey2)}>
+                              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                                <span style={{ fontSize:"0.82rem" }}>📅</span>
+                                <span style={{ fontWeight:700, fontSize:"0.86rem" }}>{day}</span>
+                                <span style={{ fontSize:"0.73rem", color:"var(--muted)" }}>{dayRecs.length} record{dayRecs.length!==1?"s":""}</span>
+                              </div>
+                              <span className={`accordion-chevron ${isDayOpen?"open":""}`}>▼</span>
+                            </div>
+                            {isDayOpen && (
+                              <div style={{ padding:"8px 12px", display:"flex", flexDirection:"column", gap:6, background:"var(--surface)" }}>
+                                {dayRecs.map(a => (
+                                  <StudentHistoryRow key={a._id} record={a} />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-// ─── AVATAR UPLOAD HELPER ────────────────────────────────────────────────────
-function AvatarUpload({ current, name, onChange }) {
-  const inputRef = useRef(null);
-
-  const handleFile = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) return alert("Please select an image file.");
-    if (file.size > 5 * 1024 * 1024) return alert("Image must be under 5MB.");
-
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const img = new Image();
-      img.onload = () => {
-        // Resize to max 300x300 and compress to JPEG 0.7 quality
-        const MAX = 300;
-        let { width, height } = img;
-        if (width > height) { if (width > MAX) { height = Math.round(height * MAX / width); width = MAX; } }
-        else { if (height > MAX) { width = Math.round(width * MAX / height); height = MAX; } }
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, width, height);
-        const compressed = canvas.toDataURL("image/jpeg", 0.7);
-        onChange(compressed);
-      };
-      img.src = ev.target.result;
-    };
-    reader.readAsDataURL(file);
-  };
-
+function StudentHistoryRow({ record: a }) {
+  const ts = new Date(a.timestamp);
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 22 }}>
-      <div className="avatar-upload-btn" onClick={() => inputRef.current.click()}>
-        <div className="avatar-upload-circle">
-          {current
-            ? <img src={current} alt="avatar" />
-            : <span>{name?.[0]?.toUpperCase()}</span>
-          }
-          <div className="avatar-upload-overlay">📷</div>
+    <div style={{ display:"flex", alignItems:"center", gap:12, background:"var(--surface2)", border:"1px solid var(--border)", borderRadius:"var(--radius-sm)", padding:"10px 14px" }}>
+      <div style={{ width:36, height:36, borderRadius:10, background:"var(--surface3)", border:"1px solid var(--border)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1rem", flexShrink:0 }}>📋</div>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontWeight:700, fontSize:"0.88rem", color:"var(--text)", marginBottom:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.session?.subject || "Unknown"}</div>
+        <div style={{ fontSize:"0.74rem", color:"var(--muted)", display:"flex", gap:8, flexWrap:"wrap" }}>
+          {a.session?.room && <span>📍 {a.session.room}</span>}
+          {a.session?.teacher?.name && <span>👨‍🏫 {a.session.teacher.name}</span>}
         </div>
       </div>
-      <div>
-        <div style={{ fontWeight: 600, fontSize: "0.88rem", marginBottom: 4 }}>Profile Picture</div>
-        <div className="avatar-upload-hint">Click to upload · JPG, PNG · Max 2MB</div>
-        {current && (
-          <button type="button" onClick={() => onChange(null)} style={{ marginTop: 6, background: "none", border: "none", color: "var(--accent2)", fontSize: "0.78rem", cursor: "pointer", padding: 0 }}>
-            Remove photo
-          </button>
-        )}
+      <div style={{ textAlign:"right", flexShrink:0 }}>
+        <span className={`badge badge-${a.status}`} style={{ display:"inline-flex", marginBottom:4 }}>{a.status==="present"?"✓ Present":"⏰ Late"}</span>
+        <div style={{ fontSize:"0.73rem", color:"var(--muted)" }}>{ts.toLocaleTimeString("en-PH",{hour:"2-digit",minute:"2-digit",...PH})}</div>
       </div>
-      <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleFile} />
     </div>
   );
 }
