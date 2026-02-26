@@ -769,10 +769,15 @@ function ForgotPasswordPage({ onBack }) {
     e.preventDefault();
     setLoading(true); setMsg(null);
     try {
-      await api.post("/auth/forgot-password", { email });
-      setMsg({ type: "success", text: "Reset link sent! Check your email inbox (and spam folder)." });
+      const data = await api.post("/auth/forgot-password", { email });
+      if (data.success) {
+        setMsg({ type: "success", text: "Reset link sent! Check your email inbox (and spam folder)." });
+      } else {
+        setMsg({ type: "error", text: data.message || "Something went wrong. Please try again." });
+      }
     } catch (err) {
-      setMsg({ type: "error", text: err.message });
+      // Show the exact backend error message (e.g. "This email address is not registered.")
+      setMsg({ type: "error", text: err.message || "Something went wrong. Please try again." });
     } finally { setLoading(false); }
   };
 
