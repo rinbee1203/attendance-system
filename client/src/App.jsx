@@ -1710,6 +1710,13 @@ function CheckInPage({ token }) {
             <h2 className="checkin-title" style={{ color: "var(--green)" }}>Attendance Marked!</h2>
             <p style={{ color: "var(--text-dim)" }}>{message}</p>
             <p style={{ color: "var(--muted)", fontSize: "0.8rem", marginTop: 8 }}>{formatDateTime(new Date())}</p>
+            <button
+              className="btn btn-ghost btn-lg"
+              style={{ width: "100%", marginTop: 20 }}
+              onClick={() => window.location.href = "/"}
+            >
+              ✕ Close
+            </button>
           </div>
         )}
         {status === "already" && (
