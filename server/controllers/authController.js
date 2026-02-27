@@ -232,9 +232,8 @@ const forgotPassword = async (req, res) => {
 
     const user = await User.findOne({ email: email.toLowerCase().trim() });
 
-    // Always respond success to prevent email enumeration
     if (!user) {
-      return res.json({ success: true, message: "If that email is registered, a reset link has been sent." });
+      return res.status(404).json({ success: false, message: "This email address is not registered. Please check and try again." });
     }
 
     // Generate reset token
