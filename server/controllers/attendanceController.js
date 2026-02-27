@@ -23,18 +23,23 @@ const checkIn = async (req, res) => {
       return res.status(400).json({ success: false, message: "This session is no longer active." });
     }
 
-    if (session.expiresAt && new Date() > new Date(session.expiresAt)) {
-      return res.status(400).json({ success: false, message: "This session has expired. QR check-in is no longer available." });
-    }
-
     if (new Date() > session.qrExpiresAt) {
       return res.status(400).json({ success: false, message: "QR code has expired. Ask your teacher to refresh it." });
     }
 
-    // Check for duplicate attendance
-    const existing = await Attendance.findOne({ student: req.user._id, session: session._id });
+    // Check for duplicate attendance — only block if already checked in TODAY for this session
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const existing = await Attendance.findOne({
+      student: req.user._id,
+      session: session._id,
+      timestamp: { $gte: todayStart, $lte: todayEnd },
+    });
     if (existing) {
-      return res.status(400).json({ success: false, message: "You have already marked attendance for this session." });
+      return res.status(400).json({ success: false, message: "You have already marked attendance for today's session." });
     }
 
     // Determine status (late if 15+ min after start)
@@ -64,7 +69,7 @@ const checkIn = async (req, res) => {
     });
   } catch (error) {
     if (error.code === 11000) {
-      return res.status(400).json({ success: false, message: "You have already marked attendance for this session." });
+      return res.status(400).json({ success: false, message: "You have already marked attendance for today's session." });
     }
     res.status(500).json({ success: false, message: "Failed to mark attendance." });
   }
@@ -100,8 +105,17 @@ const verifyToken = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid or expired QR code." });
     }
 
-    // Check if already attended
-    const existing = await Attendance.findOne({ student: req.user._id, session: session._id });
+    // Check if already attended TODAY for this session
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const existing = await Attendance.findOne({
+      student: req.user._id,
+      session: session._id,
+      timestamp: { $gte: todayStart, $lte: todayEnd },
+    });
 
     res.json({
       success: true,
