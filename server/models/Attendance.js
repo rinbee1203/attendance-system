@@ -7,11 +7,13 @@ const attendanceSchema = new mongoose.Schema(
     timestamp: { type: Date, default: Date.now },
     status: { type: String, enum: ["present", "late"], default: "present" },
     ipAddress: { type: String },
+    // Store just the date (YYYY-MM-DD) in Manila timezone for daily duplicate checking
+    attendanceDate: { type: String },
   },
   { timestamps: true }
 );
 
-// Prevent duplicate attendance
-attendanceSchema.index({ student: 1, session: 1 }, { unique: true });
+// Allow multiple records per session — but only one per student per session per day
+attendanceSchema.index({ student: 1, session: 1, attendanceDate: 1 }, { unique: true });
 
 module.exports = mongoose.model("Attendance", attendanceSchema);

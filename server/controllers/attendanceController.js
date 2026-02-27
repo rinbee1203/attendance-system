@@ -49,11 +49,15 @@ const checkIn = async (req, res) => {
       if (minutesSinceStart > 15) status = "late";
     }
 
+    // Store date string in Manila timezone for the unique index
+    const manilaDate = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }); // YYYY-MM-DD
+
     const attendance = await Attendance.create({
       student: req.user._id,
       session: session._id,
       status,
       ipAddress: req.ip,
+      attendanceDate: manilaDate,
     });
 
     await attendance.populate("session", "subject room");
