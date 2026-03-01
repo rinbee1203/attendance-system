@@ -27,16 +27,16 @@ const checkIn = async (req, res) => {
       return res.status(400).json({ success: false, message: "QR code has expired. Ask your teacher to refresh it." });
     }
 
-    // Check for duplicate attendance — only block if already checked in TODAY for this session
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    // Check for duplicate attendance — only block if already checked in TODAY (Manila time)
+    const nowC = new Date();
+    const manilaOffsetC = 8 * 60;
+    const manilaTimeC = new Date(nowC.getTime() + manilaOffsetC * 60 * 1000);
+    const todayStrC = manilaTimeC.toISOString().split("T")[0]; // YYYY-MM-DD
 
     const existing = await Attendance.findOne({
       student: req.user._id,
       session: session._id,
-      timestamp: { $gte: todayStart, $lte: todayEnd },
+      attendanceDate: todayStrC,
     });
     if (existing) {
       return res.status(400).json({ success: false, message: "You have already marked attendance for today's session." });
@@ -49,8 +49,13 @@ const checkIn = async (req, res) => {
       if (minutesSinceStart > 15) status = "late";
     }
 
-    // Store date string in Manila timezone for the unique index
-    const manilaDate = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }); // YYYY-MM-DD
+    // Store date string in Manila timezone (UTC+8) for the unique index
+    const now = new Date();
+    const manilaOffset = 8 * 60; // UTC+8 in minutes
+    const manilaTime = new Date(now.getTime() + manilaOffset * 60 * 1000);
+    const manilaDate = manilaTime.toISOString().split("T")[0]; // YYYY-MM-DD
+
+    console.log("attendanceDate being saved:", manilaDate);
 
     const attendance = await Attendance.create({
       student: req.user._id,
@@ -109,16 +114,16 @@ const verifyToken = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid or expired QR code." });
     }
 
-    // Check if already attended TODAY for this session
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    // Check if already attended TODAY (Manila time) for this session
+    const nowV = new Date();
+    const manilaOffsetV = 8 * 60;
+    const manilaTimeV = new Date(nowV.getTime() + manilaOffsetV * 60 * 1000);
+    const todayDateStr = manilaTimeV.toISOString().split("T")[0]; // YYYY-MM-DD
 
     const existing = await Attendance.findOne({
       student: req.user._id,
       session: session._id,
-      timestamp: { $gte: todayStart, $lte: todayEnd },
+      attendanceDate: todayDateStr,
     });
 
     res.json({
