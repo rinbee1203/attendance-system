@@ -1382,97 +1382,267 @@ function AttendanceAccordion({ records, onStudentClick }) {
   );
 }
 
+// ─── ZIP HELPER (pure JS, no library needed) ──────────────────────────────────
+// Minimal ZIP builder using DEFLATE-store (no compression, maximum compat)
+function buildZip(files) {
+  // files = [{ name, content }] where content is a string
+  const encoder = new TextEncoder();
+  const localHeaders = [];
+  const centralDir = [];
+  let offset = 0;
+
+  const crc32 = (() => {
+    const table = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let j = 0; j < 8; j++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      table[i] = c;
+    }
+    return (buf) => {
+      let crc = 0xffffffff;
+      for (const b of buf) crc = table[(crc ^ b) & 0xff] ^ (crc >>> 8);
+      return (crc ^ 0xffffffff) >>> 0;
+    };
+  })();
+
+  const u16 = (n) => [n & 0xff, (n >> 8) & 0xff];
+  const u32 = (n) => [n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >> 24) & 0xff];
+
+  for (const { name, content } of files) {
+    const data = encoder.encode(content);
+    const nameBytes = encoder.encode(name);
+    const crc = crc32(data);
+    const size = data.length;
+
+    const local = new Uint8Array([
+      0x50,0x4b,0x03,0x04, // local file header sig
+      20,0,                 // version needed
+      0,0,                  // general flags
+      0,0,                  // compression (store)
+      0,0,0,0,              // mod time/date
+      ...u32(crc),
+      ...u32(size),
+      ...u32(size),
+      ...u16(nameBytes.length),
+      0,0,                  // extra field len
+      ...nameBytes,
+      ...data,
+    ]);
+    localHeaders.push(local);
+
+    const central = new Uint8Array([
+      0x50,0x4b,0x01,0x02, // central dir sig
+      20,0,20,0,           // version made/needed
+      0,0,0,0,             // flags, compression
+      0,0,0,0,             // mod time/date
+      ...u32(crc),
+      ...u32(size),
+      ...u32(size),
+      ...u16(nameBytes.length),
+      0,0,0,0,0,0,         // extra, comment, disk, attrs
+      0,0,0,0,
+      ...u32(offset),
+      ...nameBytes,
+    ]);
+    centralDir.push(central);
+    offset += local.length;
+  }
+
+  const cdSize = centralDir.reduce((s, b) => s + b.length, 0);
+  const eocd = new Uint8Array([
+    0x50,0x4b,0x05,0x06,
+    0,0,0,0,
+    ...u16(files.length), ...u16(files.length),
+    ...u32(cdSize),
+    ...u32(offset),
+    0,0,
+  ]);
+
+  const total = localHeaders.reduce((s,b)=>s+b.length,0) + cdSize + eocd.length;
+  const zip = new Uint8Array(total);
+  let pos = 0;
+  for (const b of [...localHeaders, ...centralDir, eocd]) { zip.set(b, pos); pos += b.length; }
+  return zip;
+}
+
+function downloadZip(files, zipName) {
+  const zip = buildZip(files);
+  const blob = new Blob([zip], { type: "application/zip" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = zipName; a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ─── EXPORT PICKER ────────────────────────────────────────────────────────────
 function ExportPicker({ attendance, session }) {
   const [mode, setMode] = useState(null); // null | "month" | "day"
-  const [selected, setSelected] = useState("");
+  const [checked, setChecked] = useState({}); // { [key]: true/false }
+  const [zipping, setZipping] = useState(false);
 
-  // Build unique months and days from attendance records
   const byMonth = attendance.reduce((acc, a) => {
     const k = new Date(a.timestamp).toLocaleDateString("en-PH", { year:"numeric", month:"long", timeZone:"Asia/Manila" });
-    if (!acc[k]) acc[k] = [];
-    acc[k].push(a);
-    return acc;
+    if (!acc[k]) acc[k] = []; acc[k].push(a); return acc;
   }, {});
 
   const byDay = attendance.reduce((acc, a) => {
     const k = new Date(a.timestamp).toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" });
-    if (!acc[k]) acc[k] = [];
-    acc[k].push(a);
-    return acc;
+    if (!acc[k]) acc[k] = []; acc[k].push(a); return acc;
   }, {});
 
   const months = Object.keys(byMonth).sort((a,b) => new Date(b) - new Date(a));
   const days   = Object.keys(byDay).sort((a,b) => new Date(b) - new Date(a));
+  const keys   = mode === "month" ? months : days;
+  const byKey  = mode === "month" ? byMonth : byDay;
+
+  const selectedKeys = Object.keys(checked).filter(k => checked[k]);
+  const allChecked   = keys.length > 0 && keys.every(k => checked[k]);
+
+  const toggleAll = () => {
+    if (allChecked) setChecked({});
+    else setChecked(Object.fromEntries(keys.map(k => [k, true])));
+  };
+
+  const toggleKey = (k) => setChecked(p => ({ ...p, [k]: !p[k] }));
+
+  const openMode = (m) => { setMode(m); setChecked({}); };
+  const closeModal = () => { setMode(null); setChecked({}); };
+
+  // Build CSV content string for a given key (reusing existing export logic)
+  const buildCsvContent = (key) => {
+    const recs = byKey[key];
+    const subjectSafe = (session?.subject || "session").replace(/[^a-z0-9]/gi, "_").toLowerCase();
+    const keySafe = key.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+    const filename = `${subjectSafe}_${mode === "month" ? "monthly" : "daily"}_${keySafe}.csv`;
+
+    const BOM = "\uFEFF";
+    const esc2 = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const row = (arr) => arr.map(esc2).join(",");
+
+    const titleLine = mode === "month"
+      ? `Monthly Attendance Report — ${key}`
+      : `Daily Attendance Report — ${key}`;
+
+    const meta = [
+      [titleLine],
+      [`Session: ${session?.subject || "N/A"}`, `Room: ${session?.room || "N/A"}`],
+      [`Exported: ${new Date().toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric" })}`],
+      [`Total Records: ${recs.length}`],
+      [],
+    ].map(r => r.map(esc2).join(",")).join("\n");
+
+    const headers = mode === "month"
+      ? row(["#","Student Name","Student ID","Grade","Section","Status","Date","Time"])
+      : row(["#","Student Name","Student ID","Grade","Section","Status","Time"]);
+
+    const dataRows = recs.map((a, i) => {
+      const ts = new Date(a.timestamp);
+      const dateStr = ts.toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" });
+      const timeStr = ts.toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila" });
+      const status  = a.status === "present" ? "Present" : "Late";
+      if (mode === "month")
+        return row([i+1, a.student?.name, a.student?.studentId, a.student?.grade, a.student?.section, status, dateStr, timeStr]);
+      else
+        return row([i+1, a.student?.name, a.student?.studentId, a.student?.grade, a.student?.section, status, timeStr]);
+    }).join("\n");
+
+    return { filename, content: BOM + [meta, headers, dataRows].join("\n") };
+  };
 
   const handleDownload = () => {
-    if (!selected) return;
-    if (mode === "month") exportSessionByMonth(byMonth[selected], session, selected);
-    if (mode === "day")   exportSessionByDay(byDay[selected], session, selected);
-    setMode(null);
-    setSelected("");
+    if (selectedKeys.length === 0) return;
+    setZipping(true);
+
+    setTimeout(() => {
+      try {
+        if (selectedKeys.length === 1) {
+          // Single file — direct download
+          const { filename, content } = buildCsvContent(selectedKeys[0]);
+          const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
+          URL.revokeObjectURL(url);
+        } else {
+          // Multiple files — ZIP
+          const files = selectedKeys.map(k => {
+            const { filename, content } = buildCsvContent(k);
+            return { name: filename, content };
+          });
+          const subjectSafe = (session?.subject || "session").replace(/[^a-z0-9]/gi, "_").toLowerCase();
+          const zipName = `${subjectSafe}_${mode}_attendance.zip`;
+          downloadZip(files, zipName);
+        }
+        closeModal();
+      } catch(e) {
+        console.error("Export error:", e);
+      } finally {
+        setZipping(false);
+      }
+    }, 50);
   };
 
   return (
     <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
-      {/* Full export */}
-      <button className="btn btn-excel btn-sm" onClick={() => exportSessionFull(attendance, session)}>
-        ⬇ Full
-      </button>
+      <button className="btn btn-excel btn-sm" onClick={() => exportSessionFull(attendance, session)}>⬇ Full</button>
+      <button className="btn btn-excel btn-sm" onClick={() => openMode("month")}>⬇ Monthly</button>
+      <button className="btn btn-excel btn-sm" onClick={() => openMode("day")}>⬇ Daily</button>
 
-      {/* Monthly picker */}
-      <button className="btn btn-excel btn-sm" onClick={() => { setMode("month"); setSelected(""); }}>
-        ⬇ Monthly
-      </button>
-
-      {/* Daily picker */}
-      <button className="btn btn-excel btn-sm" onClick={() => { setMode("day"); setSelected(""); }}>
-        ⬇ Daily
-      </button>
-
-      {/* Picker modal */}
       {mode && (
-        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setMode(null)}>
-          <div className="modal" style={{ maxWidth: 360 }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-              <h3 style={{ fontFamily:"var(--font-heading)", fontWeight:800, fontSize:"1rem", margin:0 }}>
-                {mode === "month" ? "📅 Select Month" : "📅 Select Day"}
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && closeModal()}>
+          <div className="modal" style={{ maxWidth:380 }}>
+            {/* Header */}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+              <h3 style={{ fontFamily:"var(--font-heading)", fontWeight:800, fontSize:"1.05rem", margin:0 }}>
+                {mode === "month" ? "📅 Select Months" : "📅 Select Days"}
               </h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setMode(null)}>✕</button>
+              <button className="btn btn-ghost btn-sm" onClick={closeModal}>✕</button>
             </div>
-            <p style={{ fontSize:"0.8rem", color:"var(--muted)", marginBottom:14 }}>
-              Choose a {mode} to download as a separate CSV file
+            <p style={{ fontSize:"0.78rem", color:"var(--muted)", marginBottom:14 }}>
+              Check one or more to download. Multiple selections download as a ZIP file.
             </p>
 
-            <div style={{ display:"flex", flexDirection:"column", gap:6, maxHeight:260, overflowY:"auto", marginBottom:16 }}>
-              {(mode === "month" ? months : days).map(key => (
-                <div key={key} onClick={() => setSelected(key)} style={{
-                  padding:"10px 14px", borderRadius:"var(--radius-sm)",
-                  border: selected === key ? "1px solid var(--accent)" : "1px solid var(--border)",
-                  background: selected === key ? "rgba(124,111,255,0.12)" : "var(--surface2)",
-                  cursor:"pointer", fontSize:"0.85rem", fontWeight:600,
-                  color: selected === key ? "var(--accent-light)" : "var(--text)",
-                  display:"flex", justifyContent:"space-between", alignItems:"center",
-                  transition:"all 0.15s"
-                }}>
-                  <span>{key}</span>
-                  <span style={{ fontSize:"0.72rem", color:"var(--muted)", fontWeight:500 }}>
-                    {(mode === "month" ? byMonth : byDay)[key].length} records
-                  </span>
-                </div>
-              ))}
-              {(mode === "month" ? months : days).length === 0 && (
-                <p style={{ textAlign:"center", color:"var(--muted)", fontSize:"0.82rem" }}>No records found</p>
+            {/* Select all */}
+            <div onClick={toggleAll} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:"var(--radius-sm)", background:"var(--surface3)", border:"1px solid var(--border2)", cursor:"pointer", marginBottom:8 }}>
+              <div style={{ width:18, height:18, borderRadius:4, border:"2px solid var(--accent)", background: allChecked ? "var(--accent)" : "transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                {allChecked && <span style={{ color:"#fff", fontSize:"0.7rem", fontWeight:800 }}>✓</span>}
+              </div>
+              <span style={{ fontSize:"0.82rem", fontWeight:700, color:"var(--text)" }}>Select All</span>
+              <span style={{ marginLeft:"auto", fontSize:"0.72rem", color:"var(--muted)" }}>{keys.length} {mode === "month" ? "months" : "days"}</span>
+            </div>
+
+            {/* List */}
+            <div style={{ display:"flex", flexDirection:"column", gap:5, maxHeight:260, overflowY:"auto", marginBottom:16 }}>
+              {keys.map(key => {
+                const isChecked = !!checked[key];
+                return (
+                  <div key={key} onClick={() => toggleKey(key)} style={{
+                    display:"flex", alignItems:"center", gap:10, padding:"10px 12px",
+                    borderRadius:"var(--radius-sm)", cursor:"pointer",
+                    border: isChecked ? "1px solid var(--accent)" : "1px solid var(--border)",
+                    background: isChecked ? "rgba(124,111,255,0.1)" : "var(--surface2)",
+                    transition:"all 0.12s"
+                  }}>
+                    <div style={{ width:18, height:18, borderRadius:4, border: `2px solid ${isChecked ? "var(--accent)" : "var(--border2)"}`, background: isChecked ? "var(--accent)" : "transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                      {isChecked && <span style={{ color:"#fff", fontSize:"0.7rem", fontWeight:800 }}>✓</span>}
+                    </div>
+                    <span style={{ fontSize:"0.84rem", fontWeight:600, color: isChecked ? "var(--accent-light)" : "var(--text)", flex:1 }}>{key}</span>
+                    <span style={{ fontSize:"0.72rem", color:"var(--muted)", flexShrink:0 }}>{byKey[key].length} records</span>
+                  </div>
+                );
+              })}
+              {keys.length === 0 && (
+                <p style={{ textAlign:"center", color:"var(--muted)", fontSize:"0.82rem", padding:"20px 0" }}>No records found</p>
               )}
             </div>
 
+            {/* Download button */}
             <button
               className="btn btn-primary btn-lg"
               style={{ width:"100%" }}
-              disabled={!selected}
+              disabled={selectedKeys.length === 0 || zipping}
               onClick={handleDownload}
             >
-              ⬇ Download {selected || "..."}
+              {zipping ? <Spinner size={16} /> : selectedKeys.length > 1 ? `⬇ Download ${selectedKeys.length} files as ZIP` : selectedKeys.length === 1 ? `⬇ Download ${selectedKeys[0]}` : "Select at least one"}
             </button>
           </div>
         </div>
