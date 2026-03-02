@@ -916,7 +916,7 @@ function AuthPage({ onSuccess }) {
   }, [resetToken]);
 
   const modeConfig = {
-    login:    { title: "Welcome back",       sub: "Sign in to your AttendQR account" },
+    login:    { title: "Welcome!",       sub: "Sign in to your AttendQR account" },
     register: { title: "Get started",        sub: "Create your free account today" },
     forgot:   { title: "Forgot password?",   sub: "Enter your email and we'll send a reset link" },
     reset:    { title: "Set new password",   sub: "Choose a strong password of at least 6 characters" },
