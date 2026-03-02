@@ -1382,6 +1382,105 @@ function AttendanceAccordion({ records, onStudentClick }) {
   );
 }
 
+// ─── EXPORT PICKER ────────────────────────────────────────────────────────────
+function ExportPicker({ attendance, session }) {
+  const [mode, setMode] = useState(null); // null | "month" | "day"
+  const [selected, setSelected] = useState("");
+
+  // Build unique months and days from attendance records
+  const byMonth = attendance.reduce((acc, a) => {
+    const k = new Date(a.timestamp).toLocaleDateString("en-PH", { year:"numeric", month:"long", timeZone:"Asia/Manila" });
+    if (!acc[k]) acc[k] = [];
+    acc[k].push(a);
+    return acc;
+  }, {});
+
+  const byDay = attendance.reduce((acc, a) => {
+    const k = new Date(a.timestamp).toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" });
+    if (!acc[k]) acc[k] = [];
+    acc[k].push(a);
+    return acc;
+  }, {});
+
+  const months = Object.keys(byMonth).sort((a,b) => new Date(b) - new Date(a));
+  const days   = Object.keys(byDay).sort((a,b) => new Date(b) - new Date(a));
+
+  const handleDownload = () => {
+    if (!selected) return;
+    if (mode === "month") exportSessionByMonth(byMonth[selected], session, selected);
+    if (mode === "day")   exportSessionByDay(byDay[selected], session, selected);
+    setMode(null);
+    setSelected("");
+  };
+
+  return (
+    <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
+      {/* Full export */}
+      <button className="btn btn-excel btn-sm" onClick={() => exportSessionFull(attendance, session)}>
+        ⬇ Full
+      </button>
+
+      {/* Monthly picker */}
+      <button className="btn btn-excel btn-sm" onClick={() => { setMode("month"); setSelected(""); }}>
+        ⬇ Monthly
+      </button>
+
+      {/* Daily picker */}
+      <button className="btn btn-excel btn-sm" onClick={() => { setMode("day"); setSelected(""); }}>
+        ⬇ Daily
+      </button>
+
+      {/* Picker modal */}
+      {mode && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setMode(null)}>
+          <div className="modal" style={{ maxWidth: 360 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+              <h3 style={{ fontFamily:"var(--font-heading)", fontWeight:800, fontSize:"1rem", margin:0 }}>
+                {mode === "month" ? "📅 Select Month" : "📅 Select Day"}
+              </h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setMode(null)}>✕</button>
+            </div>
+            <p style={{ fontSize:"0.8rem", color:"var(--muted)", marginBottom:14 }}>
+              Choose a {mode} to download as a separate CSV file
+            </p>
+
+            <div style={{ display:"flex", flexDirection:"column", gap:6, maxHeight:260, overflowY:"auto", marginBottom:16 }}>
+              {(mode === "month" ? months : days).map(key => (
+                <div key={key} onClick={() => setSelected(key)} style={{
+                  padding:"10px 14px", borderRadius:"var(--radius-sm)",
+                  border: selected === key ? "1px solid var(--accent)" : "1px solid var(--border)",
+                  background: selected === key ? "rgba(124,111,255,0.12)" : "var(--surface2)",
+                  cursor:"pointer", fontSize:"0.85rem", fontWeight:600,
+                  color: selected === key ? "var(--accent-light)" : "var(--text)",
+                  display:"flex", justifyContent:"space-between", alignItems:"center",
+                  transition:"all 0.15s"
+                }}>
+                  <span>{key}</span>
+                  <span style={{ fontSize:"0.72rem", color:"var(--muted)", fontWeight:500 }}>
+                    {(mode === "month" ? byMonth : byDay)[key].length} records
+                  </span>
+                </div>
+              ))}
+              {(mode === "month" ? months : days).length === 0 && (
+                <p style={{ textAlign:"center", color:"var(--muted)", fontSize:"0.82rem" }}>No records found</p>
+              )}
+            </div>
+
+            <button
+              className="btn btn-primary btn-lg"
+              style={{ width:"100%" }}
+              disabled={!selected}
+              onClick={handleDownload}
+            >
+              ⬇ Download {selected || "..."}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── TEACHER DASHBOARD ────────────────────────────────────────────────────────
 function TeacherDashboard() {
   const [sessions, setSessions] = useState([]);
@@ -1520,19 +1619,7 @@ function TeacherDashboard() {
                         </span>
                       ))}
                     </div>
-                    <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                      <button className="btn btn-excel btn-sm" onClick={() => exportSessionFull(filteredAttendance, viewSession)} title="Export all records for this session">⬇ Full</button>
-                      <button className="btn btn-excel btn-sm" onClick={() => {
-                        // export each month separately
-                        const byMo = filteredAttendance.reduce((acc, a) => { const k = new Date(a.timestamp).toLocaleDateString("en-PH",{year:"numeric",month:"long",timeZone:"Asia/Manila"}); if(!acc[k]) acc[k]=[]; acc[k].push(a); return acc; }, {});
-                        Object.entries(byMo).forEach(([mo, recs]) => exportSessionByMonth(recs, viewSession, mo));
-                      }} title="Export one file per month">⬇ Monthly</button>
-                      <button className="btn btn-excel btn-sm" onClick={() => {
-                        // export each day separately
-                        const byD = filteredAttendance.reduce((acc, a) => { const k = new Date(a.timestamp).toLocaleDateString("en-PH",{year:"numeric",month:"long",day:"numeric",timeZone:"Asia/Manila"}); if(!acc[k]) acc[k]=[]; acc[k].push(a); return acc; }, {});
-                        Object.entries(byD).forEach(([d, recs]) => exportSessionByDay(recs, viewSession, d));
-                      }} title="Export one file per day">⬇ Daily</button>
-                    </div>
+                    <ExportPicker attendance={filteredAttendance} session={viewSession} />
                   </>
                 )}
               </div>
