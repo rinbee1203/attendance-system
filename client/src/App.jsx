@@ -241,7 +241,7 @@ const styles = `
     --bg2:       #EFEFE9;
     --surface:   #FFFFFF;
     --surface2:  #F4F4F1;
-    --surface3:  #EBEBЕ6;
+    --surface3:  #EBEBE6;
     --border:    #E3E3DC;
     --border2:   #CACAC2;
     --ink:       #1A1A17;
@@ -1298,14 +1298,10 @@ function CreateSessionModal({ onClose, onCreated }) {
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
-        <div className="modal-header">
-          <div className="modal-top-row">
-            <div>
-              <h2 className="modal-title">New Session</h2>
-              <p className="modal-sub">Set up a class attendance session</p>
-            </div>
-            <button className="btn btn-ghost btn-sm" onClick={onClose} style={{ flexShrink: 0 }}>✕</button>
-          </div>
+        <div style={{ position:"relative", marginBottom:20 }}>
+          <button onClick={onClose} style={{ position:"absolute", top:0, right:0, background:"var(--surface2)", border:"1px solid var(--border)", borderRadius:"var(--radius-xs)", width:28, height:28, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:"0.78rem", color:"var(--ink3)", lineHeight:1 }}>✕</button>
+          <h2 className="modal-title">New Session</h2>
+          <p className="modal-sub">Set up a class attendance session</p>
         </div>
         <Alert message={error} />
         <form onSubmit={handleSubmit}>
@@ -1373,53 +1369,73 @@ function QRModal({ session, onClose, onRefresh, onStop }) {
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: 460 }}>
-        <div className="modal-header">
-          <div className="modal-top-row">
+      <div style={{
+        background: "var(--surface)", borderRadius: 18, border: "1px solid var(--border)",
+        boxShadow: "var(--shadow-xl)", width: "100%", maxWidth: 400,
+        display: "flex", flexDirection: "column",
+        maxHeight: "min(92vh, 680px)", overflow: "hidden",
+      }}>
+
+        {/* ── Fixed header ── */}
+        <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid var(--border)", flexShrink: 0, position: "relative" }}>
+          <button onClick={onClose} style={{
+            position: "absolute", top: 14, right: 16,
+            background: "var(--surface2)", border: "1px solid var(--border)",
+            borderRadius: "var(--radius-xs)", width: 28, height: 28,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "pointer", fontSize: "0.78rem", color: "var(--ink3)",
+          }}>✕</button>
+          <h2 className="modal-title" style={{ paddingRight: 36 }}>{session.subject}</h2>
+          <p className="modal-sub">{session.room ? `📍 ${session.room}` : "No room"} · Active since {formatTime(session.startTime)}</p>
+        </div>
+
+        {/* ── Scrollable QR area ── */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+          {session.qrDataUrl ? (
+            <img src={session.qrDataUrl} alt="QR Code" style={{ width: "100%", maxWidth: 300, borderRadius: 10, display: "block" }} />
+          ) : (
+            <div className="loading-page"><Spinner size={32} /></div>
+          )}
+
+          {/* ── Countdown inline bar ── */}
+          <div style={{
+            width: "100%", maxWidth: 300,
+            background: isUrgent ? "var(--red-lt)" : "var(--green-lt)",
+            border: `1px solid ${isUrgent ? "#f5c6c2" : "#b7e4d5"}`,
+            borderRadius: "var(--radius-sm)", padding: "10px 16px",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+          }}>
             <div>
-              <h2 className="modal-title">{session.subject}</h2>
-              <p className="modal-sub">{session.room ? `📍 ${session.room}` : "No room specified"} · Active since {formatTime(session.startTime)}</p>
+              <div style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>QR refreshes in</div>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: "1.5rem", fontWeight: 700, color: isUrgent ? "var(--red)" : "var(--green)", lineHeight: 1 }}>
+                {String(countdown).padStart(2, "0")}s
+              </div>
             </div>
-            <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+            <svg width="44" height="44" style={{ transform: "rotate(-90deg)", flexShrink: 0 }}>
+              <circle cx="22" cy="22" r="18" fill="none" stroke={isUrgent ? "#f5c6c2" : "#b7e4d5"} strokeWidth="3" />
+              <circle cx="22" cy="22" r="18" fill="none"
+                stroke={isUrgent ? "var(--red)" : "var(--green)"}
+                strokeWidth="3"
+                strokeDasharray={`${2 * Math.PI * 18}`}
+                strokeDashoffset={`${2 * Math.PI * 18 * (1 - progressPct / 100)}`}
+                strokeLinecap="round"
+                style={{ transition: "stroke-dashoffset 0.5s, stroke 0.3s" }}
+              />
+            </svg>
           </div>
         </div>
 
-        {session.qrDataUrl ? (
-          <div className="qr-wrapper">
-            <img src={session.qrDataUrl} alt="QR Code" />
-          </div>
-        ) : (
-          <div className="loading-page"><Spinner size={32} /></div>
-        )}
-
-        <div className="countdown">
-          <div className="countdown-ring">
-            <div className="countdown-num" style={{ color: isUrgent ? "var(--accent2)" : "var(--green)" }}>
-              {String(countdown).padStart(2, "0")}
-            </div>
-            <div className="countdown-label">seconds until<br />QR refreshes</div>
-            <div style={{ width: 36, height: 36, position: "relative" }}>
-              <svg width="36" height="36" style={{ transform: "rotate(-90deg)" }}>
-                <circle cx="18" cy="18" r="14" fill="none" stroke="var(--border2)" strokeWidth="2.5" />
-                <circle cx="18" cy="18" r="14" fill="none"
-                  stroke={isUrgent ? "var(--accent2)" : "var(--green)"}
-                  strokeWidth="2.5"
-                  strokeDasharray={`${2 * Math.PI * 14}`}
-                  strokeDashoffset={`${2 * Math.PI * 14 * (1 - progressPct / 100)}`}
-                  strokeLinecap="round"
-                  style={{ transition: "stroke-dashoffset 0.5s, stroke 0.3s" }}
-                />
-              </svg>
-            </div>
-          </div>
-        </div>
-
-        <div className="modal-actions">
-          <button className="btn btn-ghost" onClick={handleRefresh} disabled={refreshing}>
-            {refreshing ? <Spinner /> : "🔄 Refresh"}
+        {/* ── Fixed footer with action buttons ── */}
+        <div style={{
+          padding: "14px 20px", borderTop: "1px solid var(--border)",
+          display: "flex", gap: 10, flexShrink: 0,
+          background: "var(--surface)",
+        }}>
+          <button className="btn btn-ghost" onClick={handleRefresh} disabled={refreshing} style={{ flex: 1 }}>
+            {refreshing ? <Spinner size={15} /> : "🔄 Refresh QR"}
           </button>
           <button className="btn btn-danger" onClick={handleStop} disabled={stopping} style={{ flex: 1 }}>
-            {stopping ? <Spinner /> : "⏹ Stop Session"}
+            {stopping ? <Spinner size={15} /> : "⏹ Stop Session"}
           </button>
         </div>
       </div>
@@ -2994,3 +3010,64 @@ function StudentSettings({ onBack }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function App() {
+  const { user } = useAuth();
+  const [page, setPage] = useState("home");
+  const [qrToken, setQrToken] = useState(null);
+  const [resetToken, setResetToken] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token  = params.get("token");
+    const path   = window.location.pathname;
+    if (path === "/reset-password" && token) {
+      setResetToken(token);
+      setPage("reset-password");
+    } else if (path === "/verify-email" && token) {
+      setResetToken(token);
+      setPage("verify-email");
+    } else if (token) {
+      setQrToken(token);
+      setPage("checkin");
+    }
+  }, []);
+
+  const handleAuthSuccess = () => setPage("home");
+
+  if (page === "reset-password" && resetToken) return <ResetPasswordPage token={resetToken} />;
+  if (page === "verify-email"   && resetToken) return <VerifyEmailPage token={resetToken} />;
+  if (!user) return <AuthPage onSuccess={handleAuthSuccess} />;
+
+  if (page === "checkin" && qrToken) return <CheckInPage token={qrToken} />;
+
+  return (
+    <div className="app">
+      <Nav onSettings={() => setPage("settings")} />
+      <EmailVerificationBanner />
+      {page === "settings" && user.role === "teacher" ? (
+        <TeacherSettings onBack={() => setPage("home")} />
+      ) : page === "settings" && user.role === "student" ? (
+        <StudentSettings onBack={() => setPage("home")} />
+      ) : user.role === "teacher" ? (
+        <TeacherDashboard />
+      ) : (
+        <StudentDashboard />
+      )}
+    </div>
+  );
+}
+
+// ─── ROOT ─────────────────────────────────────────────────────────────────────
+export default function Root() {
+  return (
+    <>
+      <style>{styles}</style>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </>
+  );
+}
