@@ -24,6 +24,36 @@ const api = {
 const AuthContext = createContext(null);
 const useAuth = () => useContext(AuthContext);
 
+// ─── THEME CONTEXT ────────────────────────────────────────────────────────────
+const ThemeContext = createContext({ dark: false, toggle: () => {} });
+const useTheme = () => useContext(ThemeContext);
+
+function ThemeProvider({ children }) {
+  const [dark, setDark] = useState(() => {
+    const saved = localStorage.getItem("theme");
+    if (saved) return saved === "dark";
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  });
+
+  const toggle = () => {
+    setDark(d => {
+      const next = !d;
+      localStorage.setItem("theme", next ? "dark" : "light");
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+  }, [dark]);
+
+  return (
+    <ThemeContext.Provider value={{ dark, toggle }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+}
+
 function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     const u = localStorage.getItem("user");
@@ -691,6 +721,164 @@ const styles = `
     .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
     .session-card { flex-wrap: wrap; }
   }
+
+
+  /* ═══════════════════════════════════════════════════
+     DARK MODE
+  ═══════════════════════════════════════════════════ */
+  [data-theme="dark"] {
+    --bg:        #0E0E0C;
+    --bg2:       #141412;
+    --surface:   #1A1A17;
+    --surface2:  #222220;
+    --surface3:  #2A2A27;
+    --border:    #2E2E2B;
+    --border2:   #3D3D39;
+    --ink:       #F0F0EB;
+    --ink2:      #C8C8C2;
+    --ink3:      #8A8A82;
+    --muted:     #5A5A54;
+    --accent:    #4D8EF0;
+    --accent-lt: #1A2E4A;
+    --accent-dk: #6BA3F5;
+    --green:     #34C98A;
+    --green-lt:  #0D2B1F;
+    --amber:     #F0A030;
+    --amber-lt:  #2A1E08;
+    --red:       #F05050;
+    --red-lt:    #2A1010;
+    --shadow-xs: 0 1px 2px rgba(0,0,0,0.3);
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.3);
+    --shadow-lg: 0 10px 25px rgba(0,0,0,0.5), 0 4px 10px rgba(0,0,0,0.3);
+    --shadow-xl: 0 20px 40px rgba(0,0,0,0.6), 0 8px 16px rgba(0,0,0,0.4);
+  }
+
+  [data-theme="dark"] body {
+    background: var(--bg);
+    color: var(--ink);
+  }
+
+  [data-theme="dark"] .nav {
+    background: rgba(14,14,12,0.88);
+    border-bottom-color: var(--border);
+  }
+
+  [data-theme="dark"] .nav-brand { color: var(--ink); }
+
+  [data-theme="dark"] .nav-logo-wrap { background: var(--surface2); border: 1px solid var(--border2); }
+
+  [data-theme="dark"] .profile-pill-btn {
+    background: var(--surface2);
+    border-color: var(--border);
+  }
+  [data-theme="dark"] .profile-pill-btn:hover { border-color: var(--border2); }
+
+  [data-theme="dark"] .profile-popup {
+    background: var(--surface);
+    border-color: var(--border);
+  }
+  [data-theme="dark"] .profile-popup-head { border-bottom-color: var(--border); }
+  [data-theme="dark"] .profile-popup-actions { border-top-color: var(--border); }
+  [data-theme="dark"] .profile-popup-btn:hover { background: var(--surface2); }
+  [data-theme="dark"] .profile-popup-btn.danger:hover { background: var(--red-lt); }
+  [data-theme="dark"] .profile-popup-role { background: var(--surface3); border-color: var(--border2); }
+
+  [data-theme="dark"] .card { background: var(--surface); border-color: var(--border); }
+
+  [data-theme="dark"] .stat-card { background: var(--surface); border-color: var(--border); }
+
+  [data-theme="dark"] .btn-primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  [data-theme="dark"] .btn-primary:hover { background: var(--ink2); border-color: var(--ink2); }
+  [data-theme="dark"] .btn-ghost { background: transparent; color: var(--ink2); border-color: var(--border); }
+  [data-theme="dark"] .btn-ghost:hover { background: var(--surface2); border-color: var(--border2); }
+  [data-theme="dark"] .btn-green { background: #0D5C3A; color: var(--green); border-color: #1A4D33; }
+  [data-theme="dark"] .btn-green:hover { background: #0F6B43; }
+  [data-theme="dark"] .btn-danger { background: var(--red-lt); color: var(--red); border-color: #4A1A1A; }
+  [data-theme="dark"] .btn-danger:hover { background: #351515; }
+  [data-theme="dark"] .btn-excel { background: var(--green-lt); color: var(--green); border-color: #1A4D33; }
+  [data-theme="dark"] .btn-excel:hover { background: #0F3325; }
+
+  [data-theme="dark"] .form-input {
+    background: var(--surface2);
+    border-color: var(--border);
+    color: var(--ink);
+  }
+  [data-theme="dark"] .form-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(77,142,240,0.15); }
+  [data-theme="dark"] .form-input::placeholder { color: var(--muted); }
+  [data-theme="dark"] .form-input:disabled { background: var(--surface3); color: var(--ink3); }
+
+  [data-theme="dark"] .auth-page {
+    background: var(--bg);
+    background-image: radial-gradient(circle at 20% 20%, rgba(77,142,240,0.06) 0%, transparent 60%),
+                      radial-gradient(circle at 80% 80%, rgba(52,201,138,0.04) 0%, transparent 60%);
+  }
+  [data-theme="dark"] .auth-card { background: var(--surface); border-color: var(--border); }
+  [data-theme="dark"] .auth-logo-wrap { background: var(--surface2); border: 1px solid var(--border2); }
+  [data-theme="dark"] .auth-tabs { background: var(--surface2); }
+  [data-theme="dark"] .auth-tab.active { background: var(--surface3); color: var(--ink); }
+  [data-theme="dark"] .role-tabs { background: var(--surface2); }
+  [data-theme="dark"] .role-tab.active { background: var(--surface3); color: var(--ink); }
+
+  [data-theme="dark"] .modal-overlay { background: rgba(0,0,0,0.7); }
+  [data-theme="dark"] .modal { background: var(--surface); border-color: var(--border); }
+
+  [data-theme="dark"] .table-wrap { border-color: var(--border); }
+  [data-theme="dark"] table { background: var(--surface); }
+  [data-theme="dark"] thead { background: var(--surface2); }
+  [data-theme="dark"] th { border-bottom-color: var(--border); color: var(--muted); }
+  [data-theme="dark"] td { border-bottom-color: var(--border); color: var(--ink2); }
+  [data-theme="dark"] tr:hover td { background: var(--surface2); }
+
+  [data-theme="dark"] .session-card { background: var(--surface); border-color: var(--border); }
+  [data-theme="dark"] .session-card:hover { border-color: var(--border2); }
+
+  [data-theme="dark"] .accordion-month { background: var(--surface); border-color: var(--border); }
+  [data-theme="dark"] .accordion-month-header:hover { background: var(--surface2); }
+  [data-theme="dark"] .accordion-day { background: var(--surface2); border-color: var(--border); }
+  [data-theme="dark"] .accordion-day-header:hover { background: var(--surface3); }
+
+  [data-theme="dark"] .filter-chip { background: var(--surface); border-color: var(--border); color: var(--ink3); }
+  [data-theme="dark"] .filter-chip:hover { border-color: var(--border2); color: var(--ink); }
+  [data-theme="dark"] .filter-chip.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+  [data-theme="dark"] .history-item { background: var(--surface); border-color: var(--border); }
+  [data-theme="dark"] .history-item:hover { box-shadow: var(--shadow-md); }
+
+  [data-theme="dark"] .settings-card { background: var(--surface); border-color: var(--border); }
+
+  [data-theme="dark"] .student-info-tile { background: var(--surface2); border-color: var(--border); }
+
+  [data-theme="dark"] .avatar { background: var(--surface3); }
+
+  [data-theme="dark"] .badge-inactive { background: var(--surface3); color: var(--ink3); border-color: var(--border2); }
+
+  [data-theme="dark"] .alert-error { background: var(--red-lt); color: var(--red); border-color: #4A1A1A; }
+  [data-theme="dark"] .alert-success { background: var(--green-lt); color: var(--green); border-color: #1A4D33; }
+
+  [data-theme="dark"] .spinner { border-color: var(--border2); border-top-color: var(--ink); }
+
+  [data-theme="dark"] .qr-container { background: var(--surface2); border-color: var(--border); }
+  [data-theme="dark"] .qr-timer { background: var(--surface); border-color: var(--border); color: var(--ink3); }
+
+  [data-theme="dark"] .age-display { background: var(--surface2); border-color: var(--border); }
+
+  [data-theme="dark"] .avatar-upload-circle { background: var(--surface2); border-color: var(--border); }
+
+  [data-theme="dark"] .page-title { color: var(--ink); }
+  [data-theme="dark"] .section-title { color: var(--ink); }
+  [data-theme="dark"] .modal-title { color: var(--ink); }
+  [data-theme="dark"] .settings-card-title { color: var(--ink); }
+  [data-theme="dark"] .auth-title { color: var(--ink); }
+
+  [data-theme="dark"] .divider { border-top-color: var(--border); }
+
+  /* Dark mode transition */
+  body, .nav, .card, .modal, .auth-card, .btn, .form-input,
+  .session-card, .accordion-month, .settings-card, .history-item,
+  .profile-popup, .stat-card, .filter-chip, .badge {
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.15s ease;
+  }
 `;
 
 // ─── COMPONENTS ───────────────────────────────────────────────────────────────
@@ -719,6 +907,7 @@ function Alert({ type = "error", message }) {
 
 function Nav({ onSettings }) {
   const { user, logout } = useAuth();
+  const { dark, toggle: toggleTheme } = useTheme();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
 
@@ -745,6 +934,15 @@ function Nav({ onSettings }) {
           AttendQR
         </div>
         <div className="nav-actions">
+          <button onClick={toggleTheme} title={dark ? "Switch to light mode" : "Switch to dark mode"} style={{
+            width:34, height:34, borderRadius:"var(--radius-sm)",
+            background:"var(--surface2)", border:"1px solid var(--border)",
+            display:"flex", alignItems:"center", justifyContent:"center",
+            cursor:"pointer", fontSize:"1rem", transition:"all 0.15s",
+            flexShrink:0,
+          }}>
+            {dark ? "☀️" : "🌙"}
+          </button>
           {user && (
             <div className="profile-popup-wrap" ref={wrapRef}>
               <button className="profile-pill-btn" onClick={() => setOpen(o => !o)}>
@@ -3071,11 +3269,11 @@ function App() {
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function Root() {
   return (
-    <>
+    <ThemeProvider>
       <style>{styles}</style>
       <AuthProvider>
         <App />
       </AuthProvider>
-    </>
+    </ThemeProvider>
   );
 }
