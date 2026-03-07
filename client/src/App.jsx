@@ -316,6 +316,15 @@ const styles = `
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;1,9..144,300&display=swap');
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  /* ── Global custom scrollbars ── */
+  * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  *::-webkit-scrollbar { width: 5px; height: 5px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 99px; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--ink3); }
+  *::-webkit-scrollbar-corner { background: transparent; }
+
+
 
   :root {
     /* ── Palette ── */
@@ -649,7 +658,13 @@ const styles = `
     border-radius: 18px; padding: 28px; width: 100%; max-width: 500px;
     box-shadow: var(--shadow-xl); animation: slideUp 0.2s cubic-bezier(0.34,1.4,0.64,1);
     max-height: 90vh; overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
   }
+  .modal::-webkit-scrollbar { width: 5px; }
+  .modal::-webkit-scrollbar-track { background: transparent; border-radius: 99px; }
+  .modal::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 99px; }
+  .modal::-webkit-scrollbar-thumb:hover { background: var(--ink3); }
   .modal-title { font-family: var(--font-heading); font-size: 1.25rem; font-weight: 600; color: var(--ink); letter-spacing: -0.02em; font-style: italic; margin-bottom: 6px; }
   .modal-sub { font-size: 0.84rem; color: var(--ink3); margin-bottom: 22px; }
 
