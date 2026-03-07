@@ -585,6 +585,19 @@ const styles = `
 
   /* ── Session cards ── */
   .sessions-grid { display: flex; flex-direction: column; gap: 10px; }
+  /* ── Detail view header ── */
+  .detail-header {
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 18px 0 20px; border-bottom: 1px solid var(--border); margin-bottom: 20px;
+  }
+  .detail-back { flex-shrink: 0; margin-top: 2px; }
+  .detail-info { flex: 1; min-width: 0; }
+  .detail-title {
+    font-family: var(--font-serif); font-size: 1.4rem; font-weight: 700;
+    color: var(--ink); letter-spacing: -0.02em; margin-bottom: 8px;
+  }
+  .detail-meta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
   .session-card {
     background: var(--surface); border: 1px solid var(--border);
     border-radius: var(--radius-lg); padding: 18px 20px;
@@ -2507,11 +2520,39 @@ function TeacherDashboard() {
               <div className="detail-info">
                 <div className="detail-title">{viewSession.subject}</div>
                 <div className="detail-meta">
-                  {viewSession.room && <span>📍 {viewSession.room}</span>}
-                  <span>📅 Created {formatDate(viewSession.createdAt)}</span>
-                  {viewSession.startTime && <span>▶ Started {formatDateTime(viewSession.startTime)}</span>}
-                  {viewSession.endTime && <span>⏹ Stopped {formatDateTime(viewSession.endTime)}</span>}
-                  {viewSession.expiresAt && <span>⏳ Expires {formatDate(viewSession.expiresAt)}</span>}
+                  {viewSession.room && (
+                    <span className="session-meta-chip">
+                      <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a5 5 0 0 0-5 5c0 3.5 5 9 5 9s5-5.5 5-9a5 5 0 0 0-5-5zm0 6.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>
+                      {viewSession.room}
+                    </span>
+                  )}
+                  <span className="session-meta-chip">
+                    <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM1 4v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4H1z"/></svg>
+                    Created {formatDate(viewSession.createdAt)}
+                  </span>
+                  {viewSession.activatedAt && (
+                    <span className="session-meta-chip chip-accent">
+                      <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/></svg>
+                      Last started {formatDateTime(viewSession.activatedAt)}
+                    </span>
+                  )}
+                  {viewSession.endTime && (
+                    <span className="session-meta-chip">
+                      <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.5h6A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 11V5A1.5 1.5 0 0 1 5 3.5z"/></svg>
+                      Stopped {formatDateTime(viewSession.endTime)}
+                    </span>
+                  )}
+                  <span className="session-meta-chip chip-accent">
+                    <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/></svg>
+                    Late after {viewSession.lateAfterMinutes ?? 15}m
+                  </span>
+                  {viewSession.isActive && (
+                    <span className="session-meta-chip chip-live">
+                      <span style={{ width:6, height:6, borderRadius:"50%", background:"var(--green)", display:"inline-block", animation:"pulse 1.4s infinite" }}/>
+                      Live now
+                    </span>
+                  )}
+                  {viewSession.expiresAt && <SessionEndLabel expiresAt={viewSession.expiresAt} />}
                 </div>
               </div>
             </div>
