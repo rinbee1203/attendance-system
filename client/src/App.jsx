@@ -24,6 +24,48 @@ const api = {
 const AuthContext = createContext(null);
 const useAuth = () => useContext(AuthContext);
 
+// ─── AVATAR COLOR HELPER ─────────────────────────────────────────────────────
+const AVATAR_COLORS = [
+  { bg: "#3B5BDB", text: "#fff" }, // indigo
+  { bg: "#0F7B55", text: "#fff" }, // green
+  { bg: "#C2410C", text: "#fff" }, // orange
+  { bg: "#7C3AED", text: "#fff" }, // violet
+  { bg: "#0369A1", text: "#fff" }, // sky
+  { bg: "#BE185D", text: "#fff" }, // pink
+  { bg: "#B45309", text: "#fff" }, // amber
+  { bg: "#0F766E", text: "#fff" }, // teal
+  { bg: "#6D28D9", text: "#fff" }, // purple
+  { bg: "#1D4ED8", text: "#fff" }, // blue
+  { bg: "#15803D", text: "#fff" }, // emerald
+  { bg: "#9F1239", text: "#fff" }, // rose
+];
+
+function getAvatarColor(name = "") {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+// Avatar component — shows profile picture or colored initial
+function AvatarCircle({ name = "", picture = null, size = 32, radius = "50%", fontSize = "0.72rem" }) {
+  const { bg, text } = getAvatarColor(name);
+  const initial = name?.[0]?.toUpperCase() || "?";
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: radius,
+      background: picture ? "transparent" : bg,
+      color: text, flexShrink: 0, overflow: "hidden",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize, fontWeight: 800, lineHeight: 1,
+    }}>
+      {picture
+        ? <img src={picture} alt={name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        : <span>{initial}</span>
+      }
+    </div>
+  );
+}
+
 // ─── THEME CONTEXT ────────────────────────────────────────────────────────────
 const ThemeContext = createContext({ dark: false, toggle: () => {} });
 const useTheme = () => useContext(ThemeContext);
@@ -946,12 +988,7 @@ function Nav({ onSettings }) {
           {user && (
             <div className="profile-popup-wrap" ref={wrapRef}>
               <button className="profile-pill-btn" onClick={() => setOpen(o => !o)}>
-                <div className="user-avatar" style={{ width: 30, height: 30, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}>
-                  {user.profilePicture
-                    ? <img key={user.profilePicture.slice(-10)} src={user.profilePicture} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                    : <span style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.72rem", fontWeight: 800 }}>{user.name?.[0]?.toUpperCase()}</span>
-                  }
-                </div>
+                <AvatarCircle name={user.name} picture={user.profilePicture} size={30} />
                 <div style={{ textAlign: "left" }}>
                   <div className="user-name">{user.name}</div>
                   <div className="user-role">{user.role}</div>
@@ -963,12 +1000,7 @@ function Nav({ onSettings }) {
                 <div className="profile-popup">
                   {/* Header */}
                   <div className="profile-popup-head">
-                    <div className="profile-popup-avatar">
-                      {user.profilePicture
-                        ? <img src={user.profilePicture} alt="avatar" />
-                        : user.name?.[0]?.toUpperCase()
-                      }
-                    </div>
+                    <AvatarCircle name={user.name} picture={user.profilePicture} size={44} radius="10px" fontSize="1.1rem" />
                     <div>
                       <div className="profile-popup-name">{user.name}</div>
                       <div className="profile-popup-email">{user.email}</div>
@@ -1700,12 +1732,7 @@ function StudentInfoModal({ student, onClose }) {
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
           <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
         </div>
-        <div className="student-modal-avatar">
-          {student.profilePicture
-            ? <img src={student.profilePicture} alt="avatar" />
-            : student.name?.[0]?.toUpperCase()
-          }
-        </div>
+        <AvatarCircle name={student.name} picture={student.profilePicture} size={68} radius="16px" fontSize="1.7rem" style={{ margin:"0 auto 16px" }} />
         <div className="student-modal-name">{student.name}</div>
         <div className="student-modal-sub">{student.email}</div>
         <div className="student-info-grid">
@@ -1817,7 +1844,7 @@ function AttendanceAccordion({ records, onStudentClick }) {
                                     <td className="td-name" onClick={() => onStudentClick && onStudentClick(a.student)} style={{ cursor: onStudentClick ? "pointer" : "default" }}>
                                       {a.student?.profilePicture
                                         ? <img src={a.student.profilePicture} alt="" className="avatar-img" />
-                                        : <span className="avatar">{a.student?.name?.[0]?.toUpperCase()}</span>
+                                        : <span className="avatar" style={{ background: getAvatarColor(a.student?.name || "").bg, color: "#fff" }}>{a.student?.name?.[0]?.toUpperCase()}</span>
                                       }
                                       <span style={{ borderBottom: onStudentClick ? "1px dashed var(--border2)" : "none" }}>{a.student?.name}</span>
                                     </td>
