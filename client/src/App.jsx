@@ -628,8 +628,8 @@ const styles = `
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: var(--surface2); }
   .td-name { display: flex; align-items: center; gap: 9px; font-weight: 600; color: var(--ink); }
-  .avatar { width: 28px; height: 28px; border-radius: 7px; background: var(--ink); display: flex; align-items: center; justify-content: center; font-size: 0.68rem; font-weight: 700; color: #fff; flex-shrink: 0; overflow: hidden; }
-  .avatar-img { width: 100%; height: 100%; object-fit: cover; border-radius: 7px; display: block; }
+  .avatar { width: 28px; height: 28px; min-width: 28px; min-height: 28px; border-radius: 7px; background: var(--ink); display: flex; align-items: center; justify-content: center; font-size: 0.68rem; font-weight: 700; color: #fff; flex-shrink: 0; overflow: hidden; position: relative; }
+  .avatar-img { width: 100%; height: 100%; object-fit: cover; border-radius: 7px; display: block; position: absolute; top: 0; left: 0; }
 
   /* ── Accordion ── */
   .accordion-month {
@@ -1966,10 +1966,12 @@ function AttendanceAccordion({ records, onStudentClick }) {
                                   <tr key={a._id}>
                                     <td style={{ color: "var(--muted)", fontSize: "0.78rem" }}>{i + 1}</td>
                                     <td className="td-name" onClick={() => onStudentClick && onStudentClick(a.student)} style={{ cursor: onStudentClick ? "pointer" : "default" }}>
-                                      {a.student?.profilePicture
-                                        ? <img src={a.student.profilePicture} alt="" className="avatar-img" />
-                                        : <span className="avatar" style={{ background: getAvatarColor(a.student?.name || "").bg, color: "#fff" }}>{a.student?.name?.[0]?.toUpperCase()}</span>
-                                      }
+                                      <div className="avatar" style={{ background: getAvatarColor(a.student?.name || "").bg, borderRadius: 7, flexShrink: 0 }}>
+                                        {a.student?.profilePicture
+                                          ? <img src={a.student.profilePicture} alt="" style={{ width:"100%", height:"100%", objectFit:"cover", display:"block", borderRadius:7 }} />
+                                          : <span style={{ color:"#fff", fontSize:"0.68rem", fontWeight:700 }}>{a.student?.name?.[0]?.toUpperCase()}</span>
+                                        }
+                                      </div>
                                       <span style={{ borderBottom: onStudentClick ? "1px dashed var(--border2)" : "none" }}>{a.student?.name}</span>
                                     </td>
                                     <td>{a.student?.studentId || "—"}</td>
