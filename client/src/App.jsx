@@ -6,11 +6,21 @@ const API_BASE = "https://attendance-system-api-wc0k.onrender.com/api";
 const api = {
   async request(endpoint, options = {}) {
     const token = localStorage.getItem("token");
+    const { headers: optHeaders, ...restOptions } = options;
     const config = {
-      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(optHeaders || {}),
+      },
+      ...restOptions,
     };
-    const res = await fetch(`${API_BASE}${endpoint}`, config);
+    let res;
+    try {
+      res = await fetch(`${API_BASE}${endpoint}`, config);
+    } catch (networkErr) {
+      throw new Error("Cannot reach the server. Check your connection.");
+    }
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || "Request failed");
     return data;
@@ -1643,14 +1653,15 @@ function EditSessionModal({ session, onClose, onSaved }) {
   const handleSave = async () => {
     setError(""); setLoading(true);
     try {
-      const data = await api.request(`/sessions/${session._id}`, {
-        method: "PATCH",
-        body: JSON.stringify(form),
-      });
+      const data = await api.patch(`/sessions/${session._id}`, form);
       onSaved(data.session);
       onClose();
     } catch(err) {
-      setError(err.message);
+      if (err.message === "Failed to fetch") {
+        setError("Cannot reach the server. Please check your connection and try again.");
+      } else {
+        setError(err.message || "Failed to save changes. Please try again.");
+      }
     } finally { setLoading(false); }
   };
 
