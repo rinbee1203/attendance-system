@@ -838,6 +838,168 @@ function Nav({ onSettings }) {
   );
 }
 
+// ─── VERIFY EMAIL PAGE ────────────────────────────────────────────────────────
+function VerifyEmailPage({ token }) {
+  const [status, setStatus] = useState("verifying"); // verifying | success | error
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    const verify = async () => {
+      try {
+        await api.post("/security/verify-email", { token });
+        setStatus("success");
+      } catch(err) {
+        setMsg(err.message);
+        setStatus("error");
+      }
+    };
+    if (token) verify();
+    else { setStatus("error"); setMsg("No verification token provided."); }
+  }, [token]);
+
+  return (
+    <div className="auth-page">
+      <div className="auth-card" style={{ textAlign:"center" }}>
+        <div className="auth-logo-wrap" style={{ margin:"0 auto 20px" }}><Logo size={36} /></div>
+        {status === "verifying" && (
+          <>
+            <Spinner size={32} style={{ margin:"0 auto 16px" }} />
+            <p style={{ color:"var(--ink3)" }}>Verifying your email…</p>
+          </>
+        )}
+        {status === "success" && (
+          <>
+            <div style={{ fontSize:"3rem", marginBottom:14 }}>✅</div>
+            <h2 className="auth-title">Email Verified!</h2>
+            <p style={{ color:"var(--ink3)", marginBottom:22, fontSize:"0.88rem" }}>Your email has been verified successfully. You can now sign in.</p>
+            <a href="/" className="btn btn-primary btn-lg" style={{ display:"inline-flex" }}>Go to Sign In</a>
+          </>
+        )}
+        {status === "error" && (
+          <>
+            <div style={{ fontSize:"3rem", marginBottom:14 }}>❌</div>
+            <h2 className="auth-title" style={{ color:"var(--red)" }}>Verification Failed</h2>
+            <p style={{ color:"var(--ink3)", marginBottom:22, fontSize:"0.88rem" }}>{msg || "The link is invalid or has expired."}</p>
+            <a href="/" className="btn btn-ghost btn-lg" style={{ display:"inline-flex" }}>← Back to Sign In</a>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── EMAIL VERIFICATION BANNER ─────────────────────────────────────────────────
+function EmailVerificationBanner() {
+  const { user } = useAuth();
+  const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  if (!user || user.isVerified) return null;
+
+  const handleResend = async () => {
+    setLoading(true);
+    try {
+      await api.post("/security/send-verification");
+      setSent(true);
+    } catch(e) { /* silent */ }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{ background:"var(--amber-lt)", borderBottom:"1px solid #f0d090", padding:"10px 0" }}>
+      <div className="container" style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:9, fontSize:"0.84rem", color:"var(--amber)" }}>
+          <span>⚠️</span>
+          <span><strong>Please verify your email address</strong> — check your inbox for a verification link.</span>
+        </div>
+        {!sent
+          ? <button className="btn btn-sm" onClick={handleResend} disabled={loading} style={{ background:"var(--amber)", color:"#fff", border:"none", flexShrink:0 }}>
+              {loading ? <Spinner size={13} /> : "Resend email"}
+            </button>
+          : <span style={{ fontSize:"0.82rem", color:"var(--green)", fontWeight:600 }}>✓ Sent! Check your inbox.</span>
+        }
+      </div>
+    </div>
+  );
+}
+
+// ─── LOGIN HISTORY SECTION ─────────────────────────────────────────────────────
+function LoginHistorySection() {
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+
+  const load = async () => {
+    if (!open) { setOpen(true); setLoading(true); }
+    try {
+      const data = await api.get("/security/login-history");
+      setHistory(data.history || []);
+    } catch(e) { /* silent */ }
+    finally { setLoading(false); }
+  };
+
+  const parseUA = (ua) => {
+    if (!ua) return "Unknown device";
+    if (/Android/i.test(ua)) return "📱 Android";
+    if (/iPhone|iPad/i.test(ua)) return "📱 iOS";
+    if (/Windows/i.test(ua)) return "💻 Windows";
+    if (/Mac/i.test(ua)) return "💻 Mac";
+    if (/Linux/i.test(ua)) return "💻 Linux";
+    return "🖥 Unknown";
+  };
+
+  return (
+    <div className="settings-card">
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <div>
+          <div className="settings-card-title">Login Activity</div>
+          <div className="settings-card-sub" style={{ marginBottom:0 }}>Recent sign-in history for your account</div>
+        </div>
+        <button className="btn btn-ghost btn-sm" onClick={() => { if (!open) load(); else setOpen(false); }}>
+          {open ? "Hide" : "View History"}
+        </button>
+      </div>
+
+      {open && (
+        <div style={{ marginTop:18 }}>
+          {loading ? (
+            <div className="loading-page" style={{ padding:"24px 0" }}><Spinner size={22} /></div>
+          ) : history.length === 0 ? (
+            <p style={{ color:"var(--muted)", fontSize:"0.84rem", textAlign:"center", padding:"16px 0" }}>No login history found.</p>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {history.map((h, i) => (
+                <div key={i} style={{
+                  display:"flex", alignItems:"center", justifyContent:"space-between",
+                  padding:"11px 14px", background:"var(--surface2)", borderRadius:"var(--radius-sm)",
+                  border:`1px solid ${h.success ? "var(--border)" : "#f5c6c2"}`,
+                  flexWrap:"wrap", gap:8
+                }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                    <span style={{ fontSize:"1.1rem" }}>{h.success ? "✅" : "❌"}</span>
+                    <div>
+                      <div style={{ fontSize:"0.84rem", fontWeight:600, color: h.success ? "var(--ink)" : "var(--red)" }}>
+                        {h.success ? "Successful login" : "Failed attempt"}
+                      </div>
+                      <div style={{ fontSize:"0.75rem", color:"var(--muted)", display:"flex", gap:8, flexWrap:"wrap", marginTop:2 }}>
+                        <span>{parseUA(h.userAgent)}</span>
+                        <span>IP: {h.ip || "—"}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize:"0.76rem", color:"var(--muted)", fontFamily:"var(--font-mono)", flexShrink:0 }}>
+                    {new Date(h.at).toLocaleString("en-PH", { month:"short", day:"numeric", year:"numeric", hour:"2-digit", minute:"2-digit", timeZone:"Asia/Manila" })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── FORGOT PASSWORD ──────────────────────────────────────────────────────────
 function ForgotPasswordPage({ onBack }) {
   const [email, setEmail] = useState("");
@@ -1136,14 +1298,10 @@ function CreateSessionModal({ onClose, onCreated }) {
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
-        <div className="modal-header">
-          <div className="modal-top-row">
-            <div>
-              <h2 className="modal-title">New Session</h2>
-              <p className="modal-sub">Set up a class attendance session</p>
-            </div>
-            <button className="btn btn-ghost btn-sm" onClick={onClose} style={{ flexShrink: 0 }}>✕</button>
-          </div>
+        <div style={{ position:"relative", marginBottom:20 }}>
+          <button onClick={onClose} style={{ position:"absolute", top:0, right:0, background:"var(--surface2)", border:"1px solid var(--border)", borderRadius:"var(--radius-xs)", width:28, height:28, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:"0.78rem", color:"var(--ink3)", lineHeight:1 }}>✕</button>
+          <h2 className="modal-title">New Session</h2>
+          <p className="modal-sub">Set up a class attendance session</p>
         </div>
         <Alert message={error} />
         <form onSubmit={handleSubmit}>
@@ -1211,53 +1369,73 @@ function QRModal({ session, onClose, onRefresh, onStop }) {
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: 460 }}>
-        <div className="modal-header">
-          <div className="modal-top-row">
+      <div style={{
+        background: "var(--surface)", borderRadius: 18, border: "1px solid var(--border)",
+        boxShadow: "var(--shadow-xl)", width: "100%", maxWidth: 400,
+        display: "flex", flexDirection: "column",
+        maxHeight: "min(92vh, 680px)", overflow: "hidden",
+      }}>
+
+        {/* ── Fixed header ── */}
+        <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid var(--border)", flexShrink: 0, position: "relative" }}>
+          <button onClick={onClose} style={{
+            position: "absolute", top: 14, right: 16,
+            background: "var(--surface2)", border: "1px solid var(--border)",
+            borderRadius: "var(--radius-xs)", width: 28, height: 28,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "pointer", fontSize: "0.78rem", color: "var(--ink3)",
+          }}>✕</button>
+          <h2 className="modal-title" style={{ paddingRight: 36 }}>{session.subject}</h2>
+          <p className="modal-sub">{session.room ? `📍 ${session.room}` : "No room"} · Active since {formatTime(session.startTime)}</p>
+        </div>
+
+        {/* ── Scrollable QR area ── */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 20px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+          {session.qrDataUrl ? (
+            <img src={session.qrDataUrl} alt="QR Code" style={{ width: "100%", maxWidth: 300, borderRadius: 10, display: "block" }} />
+          ) : (
+            <div className="loading-page"><Spinner size={32} /></div>
+          )}
+
+          {/* ── Countdown inline bar ── */}
+          <div style={{
+            width: "100%", maxWidth: 300,
+            background: isUrgent ? "var(--red-lt)" : "var(--green-lt)",
+            border: `1px solid ${isUrgent ? "#f5c6c2" : "#b7e4d5"}`,
+            borderRadius: "var(--radius-sm)", padding: "10px 16px",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+          }}>
             <div>
-              <h2 className="modal-title">{session.subject}</h2>
-              <p className="modal-sub">{session.room ? `📍 ${session.room}` : "No room specified"} · Active since {formatTime(session.startTime)}</p>
+              <div style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>QR refreshes in</div>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: "1.5rem", fontWeight: 700, color: isUrgent ? "var(--red)" : "var(--green)", lineHeight: 1 }}>
+                {String(countdown).padStart(2, "0")}s
+              </div>
             </div>
-            <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+            <svg width="44" height="44" style={{ transform: "rotate(-90deg)", flexShrink: 0 }}>
+              <circle cx="22" cy="22" r="18" fill="none" stroke={isUrgent ? "#f5c6c2" : "#b7e4d5"} strokeWidth="3" />
+              <circle cx="22" cy="22" r="18" fill="none"
+                stroke={isUrgent ? "var(--red)" : "var(--green)"}
+                strokeWidth="3"
+                strokeDasharray={`${2 * Math.PI * 18}`}
+                strokeDashoffset={`${2 * Math.PI * 18 * (1 - progressPct / 100)}`}
+                strokeLinecap="round"
+                style={{ transition: "stroke-dashoffset 0.5s, stroke 0.3s" }}
+              />
+            </svg>
           </div>
         </div>
 
-        {session.qrDataUrl ? (
-          <div className="qr-wrapper">
-            <img src={session.qrDataUrl} alt="QR Code" />
-          </div>
-        ) : (
-          <div className="loading-page"><Spinner size={32} /></div>
-        )}
-
-        <div className="countdown">
-          <div className="countdown-ring">
-            <div className="countdown-num" style={{ color: isUrgent ? "var(--accent2)" : "var(--green)" }}>
-              {String(countdown).padStart(2, "0")}
-            </div>
-            <div className="countdown-label">seconds until<br />QR refreshes</div>
-            <div style={{ width: 36, height: 36, position: "relative" }}>
-              <svg width="36" height="36" style={{ transform: "rotate(-90deg)" }}>
-                <circle cx="18" cy="18" r="14" fill="none" stroke="var(--border2)" strokeWidth="2.5" />
-                <circle cx="18" cy="18" r="14" fill="none"
-                  stroke={isUrgent ? "var(--accent2)" : "var(--green)"}
-                  strokeWidth="2.5"
-                  strokeDasharray={`${2 * Math.PI * 14}`}
-                  strokeDashoffset={`${2 * Math.PI * 14 * (1 - progressPct / 100)}`}
-                  strokeLinecap="round"
-                  style={{ transition: "stroke-dashoffset 0.5s, stroke 0.3s" }}
-                />
-              </svg>
-            </div>
-          </div>
-        </div>
-
-        <div className="modal-actions">
-          <button className="btn btn-ghost" onClick={handleRefresh} disabled={refreshing}>
-            {refreshing ? <Spinner /> : "🔄 Refresh"}
+        {/* ── Fixed footer with action buttons ── */}
+        <div style={{
+          padding: "14px 20px", borderTop: "1px solid var(--border)",
+          display: "flex", gap: 10, flexShrink: 0,
+          background: "var(--surface)",
+        }}>
+          <button className="btn btn-ghost" onClick={handleRefresh} disabled={refreshing} style={{ flex: 1 }}>
+            {refreshing ? <Spinner size={15} /> : "🔄 Refresh QR"}
           </button>
           <button className="btn btn-danger" onClick={handleStop} disabled={stopping} style={{ flex: 1 }}>
-            {stopping ? <Spinner /> : "⏹ Stop Session"}
+            {stopping ? <Spinner size={15} /> : "⏹ Stop Session"}
           </button>
         </div>
       </div>
@@ -2650,6 +2828,7 @@ function TeacherSettings({ onBack }) {
 
         </div>
       </div>
+    <LoginHistorySection />
     </div>
   );
 }
@@ -2827,64 +3006,7 @@ function StudentSettings({ onBack }) {
               </button>
             </form>
           </div>
+        <LoginHistorySection />
         </div>
       </div>
     </div>
-  );
-}
-
-// ─── ROUTER ───────────────────────────────────────────────────────────────────
-function App() {
-  const { user } = useAuth();
-  const [page, setPage] = useState("home");
-  const [qrToken, setQrToken] = useState(null);
-
-  const [resetToken, setResetToken] = useState(null);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get("token");
-    const path = window.location.pathname;
-    if (path === "/reset-password" && token) {
-      setResetToken(token);
-      setPage("reset-password");
-    } else if (token) {
-      setQrToken(token);
-      setPage("checkin");
-    }
-  }, []);
-
-  const handleAuthSuccess = () => setPage("home");
-
-  if (page === "reset-password" && resetToken) return <ResetPasswordPage token={resetToken} />;
-  if (!user) return <AuthPage onSuccess={handleAuthSuccess} />;
-
-  return (
-    <div className="app">
-      <Nav onSettings={() => setPage("settings")} />
-      {page === "checkin" && qrToken ? (
-        <CheckInPage token={qrToken} />
-      ) : page === "settings" && user.role === "teacher" ? (
-        <TeacherSettings onBack={() => setPage("home")} />
-      ) : page === "settings" && user.role === "student" ? (
-        <StudentSettings onBack={() => setPage("home")} />
-      ) : user.role === "teacher" ? (
-        <TeacherDashboard />
-      ) : (
-        <StudentDashboard />
-      )}
-    </div>
-  );
-}
-
-// ─── ROOT ─────────────────────────────────────────────────────────────────────
-export default function Root() {
-  return (
-    <>
-      <style>{styles}</style>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
-    </>
-  );
-}
