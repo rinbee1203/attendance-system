@@ -1200,7 +1200,7 @@ function LoginHistorySection() {
   const [open, setOpen] = useState(false);
 
   const load = async () => {
-    if (!open) { setOpen(true); setLoading(true); }
+    setOpen(true); setLoading(true);
     try {
       const data = await api.get("/security/login-history");
       setHistory(data.history || []);
@@ -1208,15 +1208,43 @@ function LoginHistorySection() {
     finally { setLoading(false); }
   };
 
-  const parseUA = (ua) => {
-    if (!ua) return "Unknown device";
-    if (/Android/i.test(ua)) return "📱 Android";
-    if (/iPhone|iPad/i.test(ua)) return "📱 iOS";
-    if (/Windows/i.test(ua)) return "💻 Windows";
-    if (/Mac/i.test(ua)) return "💻 Mac";
-    if (/Linux/i.test(ua)) return "💻 Linux";
-    return "🖥 Unknown";
+  // Browser → icon mapping
+  const getBrowserIcon = (browser = "") => {
+    const b = browser.toLowerCase();
+    if (b.includes("chrome"))   return "🟢";
+    if (b.includes("firefox"))  return "🦊";
+    if (b.includes("safari"))   return "🧭";
+    if (b.includes("edge"))     return "🔵";
+    if (b.includes("opera"))    return "🔴";
+    if (b.includes("brave"))    return "🦁";
+    if (b.includes("samsung"))  return "📱";
+    if (b.includes("explorer")) return "💀";
+    return "🌐";
   };
+
+  const getDeviceIcon = (device = "") => {
+    if (device === "mobile")  return "📱";
+    if (device === "tablet")  return "📲";
+    return "💻";
+  };
+
+  const formatDate = (dt) => {
+    const d = new Date(dt);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffMins < 1)    return "Just now";
+    if (diffMins < 60)   return `${diffMins}m ago`;
+    if (diffHours < 24)  return `${diffHours}h ago`;
+    if (diffDays < 7)    return `${diffDays}d ago`;
+    return d.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila" });
+  };
+
+  const formatTime = (dt) => new Date(dt).toLocaleTimeString("en-PH", {
+    hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Manila"
+  });
 
   return (
     <div className="settings-card">
@@ -1233,35 +1261,77 @@ function LoginHistorySection() {
       {open && (
         <div style={{ marginTop:18 }}>
           {loading ? (
-            <div className="loading-page" style={{ padding:"24px 0" }}><Spinner size={22} /></div>
+            <div style={{ display:"flex", justifyContent:"center", padding:"24px 0" }}><Spinner size={22} /></div>
           ) : history.length === 0 ? (
             <p style={{ color:"var(--muted)", fontSize:"0.84rem", textAlign:"center", padding:"16px 0" }}>No login history found.</p>
           ) : (
             <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
               {history.map((h, i) => (
                 <div key={i} style={{
-                  display:"flex", alignItems:"center", justifyContent:"space-between",
-                  padding:"11px 14px", background:"var(--surface2)", borderRadius:"var(--radius-sm)",
-                  border:`1px solid ${h.success ? "var(--border)" : "#f5c6c2"}`,
-                  flexWrap:"wrap", gap:8
+                  borderRadius:"var(--radius-sm)",
+                  border: `1px solid ${h.success ? "var(--border)" : "#f5c6c2"}`,
+                  background: h.success ? "var(--surface2)" : "var(--red-lt)",
+                  overflow:"hidden",
                 }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                    <span style={{ fontSize:"1.1rem" }}>{h.success ? "✅" : "❌"}</span>
-                    <div>
-                      <div style={{ fontSize:"0.84rem", fontWeight:600, color: h.success ? "var(--ink)" : "var(--red)" }}>
-                        {h.success ? "Successful login" : "Failed attempt"}
+                  {/* Main row */}
+                  <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px" }}>
+                    {/* Status dot */}
+                    <div style={{
+                      width:8, height:8, borderRadius:"50%", flexShrink:0,
+                      background: h.success ? "var(--green)" : "var(--red)",
+                      boxShadow: h.success ? "0 0 0 3px var(--green-lt)" : "0 0 0 3px var(--red-lt)",
+                    }}/>
+
+                    {/* Browser + device */}
+                    <div style={{ fontSize:"1.1rem", flexShrink:0 }}>
+                      {getBrowserIcon(h.browser)}{getDeviceIcon(h.device)}
+                    </div>
+
+                    {/* Details */}
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                        <span style={{ fontWeight:700, fontSize:"0.88rem", color: h.success ? "var(--ink)" : "var(--red)" }}>
+                          {h.success ? "Signed in" : "Failed attempt"}
+                        </span>
+                        {h.browser && h.browser !== "Unknown" && (
+                          <span style={{ fontSize:"0.75rem", background:"var(--surface3)", border:"1px solid var(--border)", borderRadius:20, padding:"1px 8px", color:"var(--ink3)", fontWeight:600 }}>
+                            {h.browser}{h.browserVersion ? ` ${h.browserVersion}` : ""}
+                          </span>
+                        )}
                       </div>
-                      <div style={{ fontSize:"0.75rem", color:"var(--muted)", display:"flex", gap:8, flexWrap:"wrap", marginTop:2 }}>
-                        <span>{parseUA(h.userAgent)}</span>
-                        <span>IP: {h.ip || "—"}</span>
+                      <div style={{ fontSize:"0.76rem", color:"var(--muted)", marginTop:3, display:"flex", gap:10, flexWrap:"wrap" }}>
+                        {h.os && h.os !== "Unknown" && <span>🖥 {h.os}</span>}
+                        {h.ip && h.ip !== "Unknown" && (
+                          <span style={{ fontFamily:"var(--font-mono)", fontSize:"0.72rem" }}>
+                            🌐 {h.ip}
+                          </span>
+                        )}
                       </div>
                     </div>
-                  </div>
-                  <div style={{ fontSize:"0.76rem", color:"var(--muted)", fontFamily:"var(--font-mono)", flexShrink:0 }}>
-                    {new Date(h.at).toLocaleString("en-PH", { month:"short", day:"numeric", year:"numeric", hour:"2-digit", minute:"2-digit", timeZone:"Asia/Manila" })}
+
+                    {/* Time */}
+                    <div style={{ textAlign:"right", flexShrink:0 }}>
+                      <div style={{ fontSize:"0.78rem", fontWeight:600, color:"var(--ink3)" }}>{formatDate(h.at)}</div>
+                      <div style={{ fontSize:"0.7rem", color:"var(--muted)", fontFamily:"var(--font-mono)", marginTop:2 }}>{formatTime(h.at)}</div>
+                    </div>
                   </div>
                 </div>
               ))}
+
+              {/* Legend */}
+              <div style={{ display:"flex", gap:16, padding:"8px 4px", borderTop:"1px solid var(--border)", marginTop:4 }}>
+                <span style={{ fontSize:"0.72rem", color:"var(--muted)", display:"flex", alignItems:"center", gap:5 }}>
+                  <span style={{ width:7, height:7, borderRadius:"50%", background:"var(--green)", display:"inline-block" }}/>
+                  Successful login
+                </span>
+                <span style={{ fontSize:"0.72rem", color:"var(--muted)", display:"flex", alignItems:"center", gap:5 }}>
+                  <span style={{ width:7, height:7, borderRadius:"50%", background:"var(--red)", display:"inline-block" }}/>
+                  Failed attempt
+                </span>
+                <span style={{ fontSize:"0.72rem", color:"var(--muted)", marginLeft:"auto" }}>
+                  Last {history.length} events
+                </span>
+              </div>
             </div>
           )}
         </div>
@@ -1269,6 +1339,7 @@ function LoginHistorySection() {
     </div>
   );
 }
+
 
 // ─── FORGOT PASSWORD ──────────────────────────────────────────────────────────
 function ForgotPasswordPage({ onBack }) {

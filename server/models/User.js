@@ -30,11 +30,14 @@ const userSchema = new mongoose.Schema(
 
     // Login activity log (last 20 entries)
     loginHistory: [{
-      ip:        { type: String },
-      userAgent: { type: String },
-      city:      { type: String },
-      at:        { type: Date, default: Date.now },
-      success:   { type: Boolean, default: true },
+      ip:             { type: String },
+      userAgent:      { type: String },
+      browser:        { type: String },
+      browserVersion: { type: String },
+      os:             { type: String },
+      device:         { type: String },
+      at:             { type: Date, default: Date.now },
+      success:        { type: Boolean, default: true },
     }],
 
     // Rate limiting — failed login tracking

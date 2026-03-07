@@ -1,5 +1,52 @@
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
+
+// ── UA Parser — extract browser & OS from User-Agent string ─────────────────
+function parseUserAgent(ua) {
+  if (!ua) return { browser: "Unknown", browserVersion: "", os: "Unknown", device: "desktop" };
+  const isMobile = /Mobile|Android|iPhone|iPad|iPod/i.test(ua);
+  const isTablet = /iPad|Tablet/i.test(ua);
+  const device   = isTablet ? "tablet" : isMobile ? "mobile" : "desktop";
+
+  let os = "Unknown";
+  if      (/Windows NT 10/i.test(ua))        os = "Windows 10/11";
+  else if (/Windows NT 6\.3/i.test(ua))      os = "Windows 8.1";
+  else if (/Windows NT 6\.1/i.test(ua))      os = "Windows 7";
+  else if (/Windows/i.test(ua))              os = "Windows";
+  else if (/Android ([\d.]+)/i.test(ua))     os = "Android " + (ua.match(/Android ([\d.]+)/i)||[])[1];
+  else if (/iPhone OS ([\d_]+)/i.test(ua))   os = "iOS " + ((ua.match(/iPhone OS ([\d_]+)/i)||[])[1]||"").replace(/_/g,".");
+  else if (/iPad.*OS ([\d_]+)/i.test(ua))    os = "iPadOS " + ((ua.match(/iPad.*OS ([\d_]+)/i)||[])[1]||"").replace(/_/g,".");
+  else if (/Mac OS X ([\d_.]+)/i.test(ua))   os = "macOS " + ((ua.match(/Mac OS X ([\d_.]+)/i)||[])[1]||"").replace(/_/g,".");
+  else if (/CrOS/i.test(ua))                 os = "Chrome OS";
+  else if (/Linux/i.test(ua))                os = "Linux";
+
+  let browser = "Unknown", browserVersion = "";
+  if      (/Edg\/([\d.]+)/i.test(ua))           { browser = "Microsoft Edge";    browserVersion = (ua.match(/Edg\/([\d.]+)/i)||[])[1]; }
+  else if (/OPR\/([\d.]+)/i.test(ua))            { browser = "Opera";             browserVersion = (ua.match(/OPR\/([\d.]+)/i)||[])[1]; }
+  else if (/SamsungBrowser\/([\d.]+)/i.test(ua)) { browser = "Samsung Browser";   browserVersion = (ua.match(/SamsungBrowser\/([\d.]+)/i)||[])[1]; }
+  else if (/Brave/i.test(ua))                    { browser = "Brave";             browserVersion = (ua.match(/Chrome\/([\d.]+)/i)||[])[1]; }
+  else if (/Chrome\/([\d.]+)/i.test(ua))         { browser = "Chrome";            browserVersion = (ua.match(/Chrome\/([\d.]+)/i)||[])[1]; }
+  else if (/Firefox\/([\d.]+)/i.test(ua))        { browser = "Firefox";           browserVersion = (ua.match(/Firefox\/([\d.]+)/i)||[])[1]; }
+  else if (/Safari\/([\d.]+)/i.test(ua))         { browser = "Safari";            browserVersion = (ua.match(/Version\/([\d.]+)/i)||[])[1]; }
+  else if (/MSIE ([\d.]+)/i.test(ua))            { browser = "Internet Explorer"; browserVersion = (ua.match(/MSIE ([\d.]+)/i)||[])[1]; }
+
+  return { browser, browserVersion: (browserVersion||"").split(".")[0], os, device };
+}
+
+// ── Get real client IP (handles Render/Vercel/Nginx proxies) ─────────────────
+function getClientIP(req) {
+  const fwd = req.headers["x-forwarded-for"];
+  if (fwd) {
+    const publicIP = fwd.split(",").map(s => s.trim()).find(ip =>
+      !ip.startsWith("10.") && !ip.startsWith("172.") &&
+      !ip.startsWith("192.168.") && ip !== "127.0.0.1" && ip !== "::1"
+    );
+    if (publicIP) return publicIP;
+  }
+  return req.headers["x-real-ip"] || req.connection?.remoteAddress || req.ip || "Unknown";
+}
+
+
 const https = require("https");
 const User = require("../models/User");
 
@@ -166,9 +213,19 @@ const login = async (req, res) => {
           return res.status(429).json({ success: false, message: `Too many failed attempts. Account locked for ${LOCK_MINUTES} minutes.` });
         }
         // Log failed login in history
-        const ua = req.headers["user-agent"] || "Unknown";
+        const ua      = req.headers["user-agent"] || "";
+        const parsed  = parseUserAgent(ua);
+        const ip      = getClientIP(req);
         user.loginHistory = user.loginHistory || [];
-        user.loginHistory.push({ ip: req.ip, userAgent: ua.slice(0, 120), success: false });
+        user.loginHistory.push({
+          ip,
+          userAgent:      ua.slice(0, 200),
+          browser:        parsed.browser,
+          browserVersion: parsed.browserVersion,
+          os:             parsed.os,
+          device:         parsed.device,
+          success:        false,
+        });
         if (user.loginHistory.length > 20) user.loginHistory = user.loginHistory.slice(-20);
         await user.save({ validateBeforeSave: false });
         const left = MAX_ATTEMPTS - user.failedLoginAttempts;
@@ -178,11 +235,21 @@ const login = async (req, res) => {
     }
 
     // ── Successful login — reset failed attempts & log activity ──
-    const ua = req.headers["user-agent"] || "Unknown";
+    const ua      = req.headers["user-agent"] || "";
+    const parsed  = parseUserAgent(ua);
+    const ip      = getClientIP(req);
     user.failedLoginAttempts = 0;
     user.lockUntil = undefined;
     user.loginHistory = user.loginHistory || [];
-    user.loginHistory.push({ ip: req.ip, userAgent: ua.slice(0, 120), success: true });
+    user.loginHistory.push({
+      ip,
+      userAgent:      ua.slice(0, 200),
+      browser:        parsed.browser,
+      browserVersion: parsed.browserVersion,
+      os:             parsed.os,
+      device:         parsed.device,
+      success:        true,
+    });
     if (user.loginHistory.length > 20) user.loginHistory = user.loginHistory.slice(-20);
     await user.save({ validateBeforeSave: false });
 
