@@ -34,6 +34,15 @@ const api = {
 const AuthContext = createContext(null);
 const useAuth = () => useContext(AuthContext);
 
+// ─── ESC KEY HOOK ────────────────────────────────────────────────────────────
+function useEscKey(onClose) {
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+}
+
 // ─── AVATAR COLOR HELPER ─────────────────────────────────────────────────────
 const AVATAR_COLORS = [
   { bg: "#3B5BDB", text: "#fff" }, // indigo
@@ -1669,6 +1678,7 @@ function AuthPage({ onSuccess }) {
 
 // ─── EDIT SESSION MODAL ───────────────────────────────────────────────────────
 function EditSessionModal({ session, onClose, onSaved }) {
+  useEscKey(onClose);
   const [form, setForm] = useState({
     subject:          session.subject || "",
     room:             session.room || "",
@@ -1789,6 +1799,7 @@ function CreateSessionModal({ onClose, onCreated }) {
   const [form, setForm] = useState({ subject: "", room: "", description: "", expiresAt: defaultEnd, lateAfterMinutes: 15 });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  useEscKey(onClose);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1869,6 +1880,8 @@ function QRModal({ session, onClose, onRefresh, onStop }) {
   const [countdown, setCountdown] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [stopping, setStopping] = useState(false);
+
+  useEscKey(onClose);
 
   useEffect(() => {
     if (!session.qrExpiresAt) return;
@@ -2003,6 +2016,7 @@ function isExpired(session) {
 
 // ─── STUDENT INFO MODAL ──────────────────────────────────────────────────────
 function StudentInfoModal({ student, onClose }) {
+  useEscKey(onClose);
   if (!student) return null;
 
   const calcAge = (bd) => {
