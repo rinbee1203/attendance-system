@@ -1878,57 +1878,36 @@ function AuthPage({ onSuccess }) {
 }
 
 // ─── GRADE / SECTION FILTER WIDGET ───────────────────────────────────────────
-// Reusable component for both Create and Edit session modals
-const GRADE_OPTIONS = [
-  "Grade 7","Grade 8","Grade 9","Grade 10","Grade 11","Grade 12",
-  "Year 1","Year 2","Year 3","Year 4",
-];
-const SECTION_OPTIONS = [
-  "Nickel","Gold","Silver","Bronze","Iron","Copper",
-  "Section A","Section B","Section C","Section D",
-  "STEM","ABM","HUMSS","GAS","TVL",
-];
-
 function GradeFilterWidget({ allowedGrades, allowedSections, onChange }) {
-  const [gradeInput, setGradeInput] = useState("");
-  const [sectionInput, setSectionInput] = useState("");
+  const [gradeInput, setGradeInput]     = useState(allowedGrades.join(", "));
+  const [sectionInput, setSectionInput] = useState(allowedSections.join(", "));
 
-  const toggleGrade = (g) => {
-    const updated = allowedGrades.includes(g)
-      ? allowedGrades.filter(x => x !== g)
-      : [...allowedGrades, g];
-    onChange({ allowedGrades: updated, allowedSections });
+  // Parse comma-separated input into a clean array
+  const parseList = (str) =>
+    str.split(",").map(s => s.trim()).filter(Boolean);
+
+  const handleGradeChange = (val) => {
+    setGradeInput(val);
+    onChange({ allowedGrades: parseList(val), allowedSections });
   };
 
-  const toggleSection = (s) => {
-    const updated = allowedSections.includes(s)
-      ? allowedSections.filter(x => x !== s)
-      : [...allowedSections, s];
-    onChange({ allowedGrades, allowedSections: updated });
+  const handleSectionChange = (val) => {
+    setSectionInput(val);
+    onChange({ allowedGrades, allowedSections: parseList(val) });
   };
 
-  const addCustomGrade = () => {
-    const val = gradeInput.trim();
-    if (!val || allowedGrades.includes(val)) return;
-    onChange({ allowedGrades: [...allowedGrades, val], allowedSections });
+  const clearAll = () => {
     setGradeInput("");
-  };
-
-  const addCustomSection = () => {
-    const val = sectionInput.trim();
-    if (!val || allowedSections.includes(val)) return;
-    onChange({ allowedGrades, allowedSections: [...allowedSections, val] });
     setSectionInput("");
+    onChange({ allowedGrades: [], allowedSections: [] });
   };
-
-  const clearAll = () => onChange({ allowedGrades: [], allowedSections: [] });
 
   const isFiltered = allowedGrades.length > 0 || allowedSections.length > 0;
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+    <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
 
-      {/* Filter status banner */}
+      {/* Status banner */}
       <div style={{
         padding:"10px 14px", borderRadius:"var(--radius-sm)",
         background: isFiltered ? "var(--accent-lt)" : "var(--surface2)",
@@ -1938,100 +1917,51 @@ function GradeFilterWidget({ allowedGrades, allowedSections, onChange }) {
         <span style={{ fontSize:"1.1rem" }}>{isFiltered ? "🔒" : "🌐"}</span>
         <div style={{ flex:1 }}>
           <div style={{ fontSize:"0.82rem", fontWeight:700, color: isFiltered ? "var(--accent-dk)" : "var(--ink)" }}>
-            {isFiltered ? "Restricted — only selected students can scan" : "Open to all students"}
+            {isFiltered ? "Restricted — only matching students can scan" : "Open to all students"}
           </div>
           {isFiltered && (
             <div style={{ fontSize:"0.73rem", color:"var(--accent-dk)", marginTop:2 }}>
-              {allowedGrades.length > 0 && <span>Grades: {allowedGrades.join(", ")} </span>}
-              {allowedSections.length > 0 && <span>· Sections: {allowedSections.join(", ")}</span>}
+              {allowedGrades.length > 0 && <span>Grades: {allowedGrades.join(", ")}</span>}
+              {allowedGrades.length > 0 && allowedSections.length > 0 && <span> · </span>}
+              {allowedSections.length > 0 && <span>Sections: {allowedSections.join(", ")}</span>}
             </div>
           )}
         </div>
         {isFiltered && (
-          <button type="button" onClick={clearAll} style={{ fontSize:"0.72rem", color:"var(--red)", background:"none", border:"none", cursor:"pointer", fontWeight:600 }}>
-            Clear all
+          <button type="button" onClick={clearAll} style={{ fontSize:"0.72rem", color:"var(--red)", background:"none", border:"none", cursor:"pointer", fontWeight:600, flexShrink:0 }}>
+            Clear
           </button>
         )}
       </div>
 
-      {/* Grade selector */}
-      <div>
-        <div style={{ fontSize:"0.75rem", fontWeight:700, color:"var(--ink3)", textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>
+      {/* Grade input */}
+      <div className="form-group" style={{ marginBottom:0 }}>
+        <label className="form-label" style={{ marginBottom:5 }}>
           Grade Level
-        </div>
-        <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:8 }}>
-          {GRADE_OPTIONS.map(g => {
-            const selected = allowedGrades.includes(g);
-            return (
-              <button key={g} type="button" onClick={() => toggleGrade(g)} style={{
-                padding:"5px 12px", borderRadius:20, fontSize:"0.76rem", fontWeight:600,
-                cursor:"pointer", transition:"all 0.12s", border:"1px solid",
-                borderColor: selected ? "var(--accent)" : "var(--border)",
-                background:  selected ? "var(--accent)" : "var(--surface2)",
-                color:       selected ? "#fff" : "var(--ink3)",
-              }}>
-                {selected ? "✓ " : ""}{g}
-              </button>
-            );
-          })}
-        </div>
-        {/* Custom grade input */}
-        <div style={{ display:"flex", gap:6 }}>
-          <input
-            className="form-input" style={{ flex:1, padding:"6px 10px", fontSize:"0.8rem" }}
-            placeholder="Custom grade (e.g. Year 3)" value={gradeInput}
-            onChange={e => setGradeInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addCustomGrade())}
-          />
-          <button type="button" className="btn btn-ghost btn-sm" onClick={addCustomGrade} disabled={!gradeInput.trim()}>Add</button>
-        </div>
-        {/* Selected custom grades not in preset */}
-        {allowedGrades.filter(g => !GRADE_OPTIONS.includes(g)).map(g => (
-          <span key={g} style={{ display:"inline-flex", alignItems:"center", gap:4, margin:"4px 4px 0 0", padding:"3px 9px", borderRadius:20, fontSize:"0.74rem", background:"var(--accent)", color:"#fff", fontWeight:600 }}>
-            {g}
-            <button type="button" onClick={() => toggleGrade(g)} style={{ background:"none", border:"none", color:"#fff", cursor:"pointer", fontSize:"0.7rem", lineHeight:1, padding:"0 0 0 2px" }}>✕</button>
-          </span>
-        ))}
+          <span style={{ color:"var(--muted)", fontWeight:400, textTransform:"none", letterSpacing:0 }}> — leave blank for all</span>
+        </label>
+        <input
+          className="form-input"
+          placeholder='e.g. Grade 12  or  Grade 11, Grade 12'
+          value={gradeInput}
+          onChange={e => handleGradeChange(e.target.value)}
+        />
+        <p className="form-hint">Separate multiple grades with commas. Must match exactly what students entered in their profile.</p>
       </div>
 
-      {/* Section selector */}
-      <div>
-        <div style={{ fontSize:"0.75rem", fontWeight:700, color:"var(--ink3)", textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>
+      {/* Section input */}
+      <div className="form-group" style={{ marginBottom:0 }}>
+        <label className="form-label" style={{ marginBottom:5 }}>
           Section
-        </div>
-        <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:8 }}>
-          {SECTION_OPTIONS.map(s => {
-            const selected = allowedSections.includes(s);
-            return (
-              <button key={s} type="button" onClick={() => toggleSection(s)} style={{
-                padding:"5px 12px", borderRadius:20, fontSize:"0.76rem", fontWeight:600,
-                cursor:"pointer", transition:"all 0.12s", border:"1px solid",
-                borderColor: selected ? "var(--green)" : "var(--border)",
-                background:  selected ? "var(--green)" : "var(--surface2)",
-                color:       selected ? "#fff" : "var(--ink3)",
-              }}>
-                {selected ? "✓ " : ""}{s}
-              </button>
-            );
-          })}
-        </div>
-        {/* Custom section input */}
-        <div style={{ display:"flex", gap:6 }}>
-          <input
-            className="form-input" style={{ flex:1, padding:"6px 10px", fontSize:"0.8rem" }}
-            placeholder="Custom section (e.g. BSCS-2A)" value={sectionInput}
-            onChange={e => setSectionInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addCustomSection())}
-          />
-          <button type="button" className="btn btn-ghost btn-sm" onClick={addCustomSection} disabled={!sectionInput.trim()}>Add</button>
-        </div>
-        {/* Selected custom sections not in preset */}
-        {allowedSections.filter(s => !SECTION_OPTIONS.includes(s)).map(s => (
-          <span key={s} style={{ display:"inline-flex", alignItems:"center", gap:4, margin:"4px 4px 0 0", padding:"3px 9px", borderRadius:20, fontSize:"0.74rem", background:"var(--green)", color:"#fff", fontWeight:600 }}>
-            {s}
-            <button type="button" onClick={() => toggleSection(s)} style={{ background:"none", border:"none", color:"#fff", cursor:"pointer", fontSize:"0.7rem", lineHeight:1, padding:"0 0 0 2px" }}>✕</button>
-          </span>
-        ))}
+          <span style={{ color:"var(--muted)", fontWeight:400, textTransform:"none", letterSpacing:0 }}> — leave blank for all</span>
+        </label>
+        <input
+          className="form-input"
+          placeholder='e.g. Nickel  or  Nickel, Gold'
+          value={sectionInput}
+          onChange={e => handleSectionChange(e.target.value)}
+        />
+        <p className="form-hint">Separate multiple sections with commas. Must match exactly what students entered in their profile.</p>
       </div>
     </div>
   );
