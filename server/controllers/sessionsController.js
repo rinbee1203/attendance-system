@@ -225,4 +225,27 @@ const deleteSession = async (req, res) => {
   }
 };
 
-module.exports = { createSession, startSession, refreshQR, stopSession, getSessions, getSession, deleteSession };
+
+// @desc    Update session settings (grace period, room, description)
+// @route   PATCH /api/sessions/:id
+// @access  Teacher only
+const updateSession = async (req, res) => {
+  try {
+    const session = await Session.findById(req.params.id);
+    if (!session) return res.status(404).json({ success: false, message: "Session not found." });
+    if (session.teacher.toString() !== req.user._id.toString())
+      return res.status(403).json({ success: false, message: "Not authorized." });
+
+    const allowed = ["lateAfterMinutes", "room", "description", "subject"];
+    allowed.forEach(field => {
+      if (req.body[field] !== undefined) session[field] = req.body[field];
+    });
+
+    await session.save();
+    res.json({ success: true, message: "Session updated.", session });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to update session." });
+  }
+};
+
+module.exports = { createSession, startSession, refreshQR, stopSession, getSessions, getSession, deleteSession, updateSession };

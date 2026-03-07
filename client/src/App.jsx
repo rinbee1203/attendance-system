@@ -588,7 +588,18 @@ const styles = `
   .session-dot.expired { background: var(--amber); box-shadow: 0 0 0 3px var(--amber-lt); }
   .session-info { flex: 1; min-width: 0; }
   .session-subject { font-weight: 600; font-size: 0.95rem; color: var(--ink); margin-bottom: 3px; }
-  .session-meta { font-size: 0.78rem; color: var(--ink3); display: flex; gap: 12px; flex-wrap: wrap; }
+  .session-meta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 7px; }
+  .session-meta-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 9px; border-radius: 20px;
+    font-size: 0.73rem; font-weight: 500; color: var(--ink3);
+    background: var(--surface2); border: 1px solid var(--border);
+    white-space: nowrap; line-height: 1.5;
+  }
+  .session-meta-chip svg { flex-shrink: 0; opacity: 0.7; }
+  .session-meta-chip.chip-live { background: var(--green-lt); border-color: var(--green); color: var(--green); font-weight: 700; }
+  .session-meta-chip.chip-expired { background: var(--red-lt); border-color: var(--red); color: var(--red); font-weight: 700; }
+  .session-meta-chip.chip-accent { background: var(--accent-lt); border-color: var(--accent); color: var(--accent-dk); }
   .session-actions { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
 
   /* ── Badge ── */
@@ -744,6 +755,7 @@ const styles = `
 
   /* ── Animations ── */
   @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
   @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
   @keyframes slideUp { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
@@ -1617,6 +1629,121 @@ function AuthPage({ onSuccess }) {
   );
 }
 
+// ─── EDIT SESSION MODAL ───────────────────────────────────────────────────────
+function EditSessionModal({ session, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    subject:          session.subject || "",
+    room:             session.room || "",
+    description:      session.description || "",
+    lateAfterMinutes: session.lateAfterMinutes ?? 15,
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState("");
+
+  const handleSave = async () => {
+    setError(""); setLoading(true);
+    try {
+      const data = await api.request(`/sessions/${session._id}`, {
+        method: "PATCH",
+        body: JSON.stringify(form),
+      });
+      onSaved(data.session);
+      onClose();
+    } catch(err) {
+      setError(err.message);
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 460 }}>
+        {/* Header */}
+        <div style={{ position:"relative", marginBottom:20 }}>
+          <button onClick={onClose} style={{ position:"absolute", top:0, right:0, background:"var(--surface2)", border:"1px solid var(--border)", borderRadius:"var(--radius-xs)", width:28, height:28, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", fontSize:"0.78rem", color:"var(--ink3)" }}>✕</button>
+          <h2 className="modal-title">Edit Session</h2>
+          <p className="modal-sub">Update settings for <strong>{session.subject}</strong></p>
+        </div>
+
+        <Alert message={error} />
+
+        {/* Subject */}
+        <div className="form-group">
+          <label className="form-label">Subject</label>
+          <input className="form-input" value={form.subject}
+            onChange={e => setForm(f => ({ ...f, subject: e.target.value }))}
+            placeholder="e.g. Computer Science 101" />
+        </div>
+
+        {/* Room */}
+        <div className="form-group">
+          <label className="form-label">Room</label>
+          <input className="form-input" value={form.room}
+            onChange={e => setForm(f => ({ ...f, room: e.target.value }))}
+            placeholder="e.g. Room 201" />
+        </div>
+
+        {/* Late threshold */}
+        <div className="form-group">
+          <label className="form-label">
+            Late After&nbsp;
+            <span style={{ color:"var(--muted)", fontWeight:400, textTransform:"none", letterSpacing:0 }}>
+              (minutes after session starts)
+            </span>
+          </label>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            {[5, 10, 15, 20, 30].map(m => (
+              <button key={m} type="button"
+                onClick={() => setForm(f => ({ ...f, lateAfterMinutes: m }))}
+                style={{
+                  padding:"8px 18px", borderRadius:"var(--radius-sm)", cursor:"pointer",
+                  fontSize:"0.84rem", fontWeight:600, transition:"all 0.13s", border:"1px solid",
+                  borderColor: form.lateAfterMinutes === m ? "var(--accent)" : "var(--border)",
+                  background:  form.lateAfterMinutes === m ? "var(--accent-lt)" : "var(--surface2)",
+                  color:       form.lateAfterMinutes === m ? "var(--accent-dk)" : "var(--ink3)",
+                }}>
+                {m} min
+              </button>
+            ))}
+          </div>
+          <p className="form-hint" style={{ marginTop:8 }}>
+            Students scanning after <strong>{form.lateAfterMinutes} minutes</strong> from Start will be marked&nbsp;
+            <span style={{ color:"var(--amber)", fontWeight:700 }}>Late</span>.
+          </p>
+        </div>
+
+        {/* Description */}
+        <div className="form-group">
+          <label className="form-label">Description</label>
+          <input className="form-input" value={form.description}
+            onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            placeholder="Optional notes" />
+        </div>
+
+        {/* Current grace period indicator */}
+        <div style={{ background:"var(--surface2)", border:"1px solid var(--border)", borderRadius:"var(--radius-sm)", padding:"11px 14px", marginBottom:20, display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ fontSize:"1.1rem" }}>⏱</span>
+          <div>
+            <div style={{ fontSize:"0.8rem", fontWeight:600, color:"var(--ink)" }}>
+              Current grace period: <span style={{ color:"var(--accent)" }}>{session.lateAfterMinutes ?? 15} min</span>
+            </div>
+            <div style={{ fontSize:"0.73rem", color:"var(--muted)", marginTop:2 }}>
+              Changing this only affects future check-ins, not existing records.
+            </div>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div style={{ display:"flex", gap:10 }}>
+          <button className="btn btn-ghost" style={{ flex:1 }} onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" style={{ flex:2 }} onClick={handleSave} disabled={loading}>
+            {loading ? <Spinner size={16} /> : "💾 Save Changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── CREATE SESSION MODAL ─────────────────────────────────────────────────────
 function CreateSessionModal({ onClose, onCreated }) {
   const defaultEnd = getDefaultEndDate();
@@ -1808,19 +1935,27 @@ function QRModal({ session, onClose, onRefresh, onStop }) {
 // ─── SESSION END DATE LABEL ───────────────────────────────────────────────────
 function SessionEndLabel({ expiresAt }) {
   if (!expiresAt) return null;
-  const end = new Date(expiresAt);
-  const now = new Date();
+  const end      = new Date(expiresAt);
+  const now      = new Date();
   const diffDays = Math.ceil((end - now) / (1000 * 60 * 60 * 24));
 
-  if (diffDays < 0) {
+  if (diffDays < 0)
+    return <span className="session-meta-chip chip-expired">🔒 Expired</span>;
+
+  if (diffDays <= 14)
     return (
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(255,101,132,0.12)", color: "#ff8fa3", border: "1px solid rgba(255,101,132,0.3)", borderRadius: 20, padding: "2px 10px", fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.02em" }}>
-        🔒 Expired
+      <span className="session-meta-chip" style={{ borderColor:"var(--amber)", color:"var(--amber)", background:"var(--amber-lt)" }}>
+        <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M7.002 11a1 1 0 1 1 2 0 1 1 0 0 1-2 0zM7.1 4.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 4.995z"/></svg>
+        Expires in {diffDays}d
       </span>
     );
-  }
-  if (diffDays <= 14) return <span className="session-enddate soon">⚠ Expires in {diffDays}d</span>;
-  return <span className="session-enddate">📅 Until {formatDate(end)}</span>;
+
+  return (
+    <span className="session-meta-chip">
+      <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM1 4v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4H1z"/></svg>
+      Until {end.toLocaleDateString("en-PH", { month:"short", day:"numeric", year:"numeric" })}
+    </span>
+  );
 }
 
 function isExpired(session) {
@@ -2278,6 +2413,7 @@ function TeacherDashboard() {
   const [loadingAttendance, setLoadingAttendance] = useState(false);
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedStudent, setSelectedStudent] = useState(null);
+  const [editSession, setEditSession]   = useState(null);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -2471,11 +2607,31 @@ function TeacherDashboard() {
                     <div className="session-info">
                       <div className="session-subject">{session.subject}</div>
                       <div className="session-meta">
-                        {session.room && <span>📍 {session.room}</span>}
-                        <span>👥 {session.attendanceCount || 0} attended</span>
-                        <span>📅 {formatDate(session.createdAt)}</span>
-                        {session.startTime && <span>▶ {formatDateTime(session.startTime)}</span>}
-                        {session.isActive && <span className="badge badge-active">● Live</span>}
+                        {/* Room */}
+                        {session.room && (
+                          <span className="session-meta-chip">
+                            <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a5 5 0 0 0-5 5c0 3.5 5 9 5 9s5-5.5 5-9a5 5 0 0 0-5-5zm0 6.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>
+                            {session.room}
+                          </span>
+                        )}
+                        {/* Attendance count */}
+                        <span className="session-meta-chip">
+                          <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M7 14s-1 0-1-1 1-4 5-4 5 3 5 4-1 1-1 1H7zm4-6a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path fillRule="evenodd" d="M5.216 14A2.238 2.238 0 0 1 5 13c0-1.355.68-2.75 1.936-3.72A6.325 6.325 0 0 0 5 9c-4 0-5 3-5 4s1 1 1 1h4.216z"/><path d="M4.5 8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/></svg>
+                          {session.attendanceCount || 0} check-in{session.attendanceCount !== 1 ? "s" : ""}
+                        </span>
+                        {/* Grace period */}
+                        <span className="session-meta-chip chip-accent">
+                          <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/></svg>
+                          Late after {session.lateAfterMinutes ?? 15}m
+                        </span>
+                        {/* Live badge */}
+                        {session.isActive && (
+                          <span className="session-meta-chip chip-live">
+                            <span style={{ width:6, height:6, borderRadius:"50%", background:"var(--green)", display:"inline-block", animation:"pulse 1.4s infinite" }}/>
+                            Live
+                          </span>
+                        )}
+                        {/* Expiry */}
                         <SessionEndLabel expiresAt={session.expiresAt} />
                       </div>
                     </div>
@@ -2490,6 +2646,7 @@ function TeacherDashboard() {
                         <button className="btn btn-primary btn-sm" onClick={() => handleStart(session._id)}>▶ Start</button>
                       )}
                       <button className="btn btn-ghost btn-sm" onClick={() => viewDetails(session)}>View List</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setEditSession(session)} title="Edit session settings" style={{ padding:"6px 10px" }}>✏️</button>
                       <button className="btn btn-danger btn-sm" onClick={() => handleDelete(session._id, session.subject)} title="Delete session and all attendance records">🗑</button>
                     </div>
                   </div>
@@ -2504,6 +2661,18 @@ function TeacherDashboard() {
         <CreateSessionModal
           onClose={() => setShowCreate(false)}
           onCreated={(s) => { setSessions((prev) => [s, ...prev]); }}
+        />
+      )}
+
+      {editSession && (
+        <EditSessionModal
+          session={editSession}
+          onClose={() => setEditSession(null)}
+          onSaved={(updated) => {
+            setSessions(prev => prev.map(s => s._id === updated._id ? { ...s, ...updated } : s));
+            if (activeQR?._id === updated._id) setActiveQR(a => ({ ...a, ...updated }));
+            setEditSession(null);
+          }}
         />
       )}
 
