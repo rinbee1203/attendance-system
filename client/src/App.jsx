@@ -521,6 +521,7 @@ const styles = `
   .form-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(31,111,235,0.1); }
   .form-input::placeholder { color: var(--muted); }
   .form-input:disabled { background: var(--surface2); color: var(--ink3); cursor: not-allowed; }
+  .form-hint { font-size: 0.75rem; color: var(--muted); margin-top: 5px; line-height: 1.5; }
   textarea.form-input { resize: vertical; min-height: 90px; }
 
   /* ── Alert ── */
@@ -1619,7 +1620,7 @@ function AuthPage({ onSuccess }) {
 // ─── CREATE SESSION MODAL ─────────────────────────────────────────────────────
 function CreateSessionModal({ onClose, onCreated }) {
   const defaultEnd = getDefaultEndDate();
-  const [form, setForm] = useState({ subject: "", room: "", description: "", expiresAt: defaultEnd });
+  const [form, setForm] = useState({ subject: "", room: "", description: "", expiresAt: defaultEnd, lateAfterMinutes: 15 });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -1660,6 +1661,26 @@ function CreateSessionModal({ onClose, onCreated }) {
               <input className="form-input" type="datetime-local" value={form.expiresAt} onChange={(e) => setForm((f) => ({ ...f, expiresAt: e.target.value }))} />
               <p className="form-hint">Default: 210 days from now</p>
             </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Late After <span style={{ color:"var(--muted)", fontWeight:400, textTransform:"none", letterSpacing:0 }}>(minutes after session starts)</span></label>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              {[5,10,15,20,30].map(m => (
+                <button key={m} type="button" onClick={() => setForm(f => ({ ...f, lateAfterMinutes: m }))}
+                  style={{
+                    padding:"7px 16px", borderRadius:"var(--radius-sm)", border:"1px solid",
+                    fontSize:"0.82rem", fontWeight:600, cursor:"pointer", transition:"all 0.13s",
+                    borderColor: form.lateAfterMinutes === m ? "var(--accent)" : "var(--border)",
+                    background: form.lateAfterMinutes === m ? "var(--accent-lt)" : "var(--surface2)",
+                    color: form.lateAfterMinutes === m ? "var(--accent-dk)" : "var(--ink3)",
+                  }}>
+                  {m} min
+                </button>
+              ))}
+            </div>
+            <p className="form-hint" style={{ marginTop:6 }}>
+              Students who scan after <strong>{form.lateAfterMinutes} minutes</strong> from when you press Start will be marked <span style={{ color:"var(--amber)", fontWeight:600 }}>Late</span>.
+            </p>
           </div>
           <div className="form-group">
             <label className="form-label">Description</label>

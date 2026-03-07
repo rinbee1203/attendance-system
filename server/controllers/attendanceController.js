@@ -42,11 +42,16 @@ const checkIn = async (req, res) => {
       return res.status(400).json({ success: false, message: "You have already marked attendance for today's session." });
     }
 
-    // Determine status (late if 15+ min after start)
+    // Determine status — use activatedAt (when teacher pressed Start THIS session)
+    // Falls back to startTime if activatedAt not set (backward compat)
     let status = "present";
-    if (session.startTime) {
-      const minutesSinceStart = (Date.now() - new Date(session.startTime).getTime()) / 60000;
-      if (minutesSinceStart > 15) status = "late";
+    const refTime = session.activatedAt || session.startTime;
+    if (refTime) {
+      const minutesSinceActivated = (Date.now() - new Date(refTime).getTime()) / 60000;
+      const threshold = typeof session.lateAfterMinutes === "number" ? session.lateAfterMinutes : 15;
+      if (minutesSinceActivated > threshold) {
+        status = "late";
+      }
     }
 
     // Store date string in Manila timezone (UTC+8) for the unique index

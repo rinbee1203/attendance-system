@@ -53,9 +53,10 @@ const startSession = async (req, res) => {
     const token = crypto.randomBytes(20).toString("hex");
     const qrExpiresAt = new Date(Date.now() + QR_EXPIRY_SECONDS * 1000);
 
-    session.isActive = true;
-    session.startTime = session.startTime || new Date();
-    session.qrToken = token;
+    session.isActive    = true;
+    session.startTime   = session.startTime || new Date(); // creation time (kept for history)
+    session.activatedAt = new Date();                      // resets every time teacher starts — used for late check
+    session.qrToken     = token;
     session.qrExpiresAt = qrExpiresAt;
     await session.save();
 
