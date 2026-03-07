@@ -163,142 +163,343 @@ function AuthProvider({ children }) {
 
 // ── Shared helpers ──
 const BOM = "\uFEFF";
-const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-const csvRow = (arr) => arr.map(esc).join(",");
-const download = (content, filename) => {
-  const blob = new Blob([BOM + content], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
-};
 const safe = (s) => (s || "file").replace(/[^a-z0-9]/gi, "_").toLowerCase();
 const todayStr = () => new Date().toISOString().split("T")[0];
+const PH_OPTS = { timeZone: "Asia/Manila" };
 
-// ── STUDENT exports ──
-
-// Student: export by subject (one subject's full history)
-function exportStudentBySubject(records, subjectName, studentName) {
-  const title = [
-    [`Attendance Report — ${subjectName}`],
-    [`Student: ${studentName}`],
-    [`Exported: ${new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}`],
-    [`Total Records: ${records.length}`],
-    [],
-  ];
-  const headers = ["#", "Subject", "Room", "Teacher", "Status", "Date", "Time"];
-  const rows = records.map((a, i) => {
-    const ts = new Date(a.timestamp);
-    return [i+1, a.session?.subject||"N/A", a.session?.room||"N/A", a.session?.teacher?.name||"N/A",
-      a.status === "present" ? "Present" : "Late",
-      ts.toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" }),
-      ts.toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila" })];
+// ── SheetJS XLSX builder ─────────────────────────────────────────────────────
+// Dynamically loads SheetJS from CDN, then builds a styled .xlsx attendance sheet
+async function loadXLSX() {
+  if (window.XLSX) return window.XLSX;
+  return new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    s.onload = () => res(window.XLSX);
+    s.onerror = () => rej(new Error("Failed to load XLSX library"));
+    document.head.appendChild(s);
   });
-  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("\n");
-  download(csv, `${safe(studentName)}_${safe(subjectName)}_${todayStr()}.csv`);
 }
 
-// Student: export by month (one month's records across all subjects)
-function exportStudentByMonth(records, monthLabel, studentName) {
-  const title = [
-    [`Attendance Report — ${monthLabel}`],
-    [`Student: ${studentName}`],
-    [`Exported: ${new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}`],
-    [`Total Records: ${records.length}`],
-    [],
-  ];
-  const headers = ["#", "Subject", "Room", "Teacher", "Status", "Date", "Time"];
-  const rows = records.map((a, i) => {
-    const ts = new Date(a.timestamp);
-    return [i+1, a.session?.subject||"N/A", a.session?.room||"N/A", a.session?.teacher?.name||"N/A",
-      a.status === "present" ? "Present" : "Late",
-      ts.toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" }),
-      ts.toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila" })];
-  });
-  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("\n");
-  download(csv, `${safe(studentName)}_${safe(monthLabel)}_${todayStr()}.csv`);
+function xlsxDate(ts) {
+  return new Date(ts).toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", ...PH_OPTS });
+}
+function xlsxTime(ts) {
+  return new Date(ts).toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", ...PH_OPTS });
 }
 
-// ── TEACHER exports ──
+// Core builder — creates a fully styled attendance sheet
+async function buildAttendanceXLSX({ title, subtitle, infoRows, headers, rows, filename, summaryRows }) {
+  const XLSX = await loadXLSX();
 
-// Teacher: export by specific day
-function exportTeacherByDay(records, dayLabel, session) {
-  const title = [
-    [`Daily Attendance Report — ${dayLabel}`],
-    [`Session: ${session?.subject||"N/A"}`, `Room: ${session?.room||"N/A"}`],
-    [`Exported: ${new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}`],
-    [`Total Records: ${records.length}`],
-    [],
-  ];
-  const headers = ["#", "Student Name", "Student ID", "Grade", "Section", "Status", "Time"];
-  const rows = records.map((a, i) => {
-    const ts = new Date(a.timestamp);
-    return [i+1, a.student?.name||"N/A", a.student?.studentId||"N/A",
-      a.student?.grade||"N/A", a.student?.section||"N/A",
-      a.status === "present" ? "Present" : "Late",
-      ts.toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila" })];
+  // ── Assemble all cells as an aoa (array of arrays) ──
+  const aoa = [];
+
+  // Row 1: Main title
+  aoa.push([title]);
+  aoa.push([subtitle || ""]);
+  aoa.push([]); // spacer
+
+  // Info block
+  infoRows.forEach(r => aoa.push(r));
+  aoa.push([]); // spacer
+
+  const headerRowIdx = aoa.length; // 0-based
+  aoa.push(headers);
+
+  // Data rows
+  rows.forEach(r => aoa.push(r));
+
+  aoa.push([]); // spacer after data
+
+  // Summary block
+  if (summaryRows?.length) {
+    summaryRows.forEach(r => aoa.push(r));
+  }
+
+  // ── Build worksheet ──
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const totalRows = aoa.length;
+  const totalCols = headers.length;
+
+  // ── Column widths ──
+  const colWidths = headers.map((h, ci) => {
+    const maxData = rows.reduce((max, r) => Math.max(max, String(r[ci] ?? "").length), 0);
+    return { wch: Math.max(String(h).length, maxData, 8) + 4 };
   });
-  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("\n");
-  download(csv, `${safe(session?.subject)}_${safe(dayLabel)}_daily.csv`);
+  ws["!cols"] = colWidths;
+
+  // ── Cell styles via cell objects ──
+  const range = XLSX.utils.decode_range(ws["!ref"]);
+
+  // Style helper
+  const style = (cell, s) => {
+    if (!ws[cell]) ws[cell] = { v: "", t: "s" };
+    ws[cell].s = s;
+  };
+
+  // Title row — large, bold, dark bg
+  const titleCell = XLSX.utils.encode_cell({ r: 0, c: 0 });
+  if (ws[titleCell]) {
+    ws[titleCell].s = {
+      font: { bold: true, sz: 16, color: { rgb: "FFFFFF" }, name: "Arial" },
+      fill: { fgColor: { rgb: "1A1A17" }, patternType: "solid" },
+      alignment: { horizontal: "left", vertical: "center" },
+    };
+  }
+  // Merge title across all columns
+  ws["!merges"] = ws["!merges"] || [];
+  ws["!merges"].push({ s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } });
+
+  // Subtitle row
+  const subCell = XLSX.utils.encode_cell({ r: 1, c: 0 });
+  if (ws[subCell]) {
+    ws[subCell].s = {
+      font: { sz: 11, color: { rgb: "6B6B63" }, name: "Arial" },
+      fill: { fgColor: { rgb: "1A1A17" }, patternType: "solid" },
+      alignment: { horizontal: "left", vertical: "center" },
+    };
+  }
+  ws["!merges"].push({ s: { r: 1, c: 0 }, e: { r: 1, c: totalCols - 1 } });
+
+  // Info rows — subtle styling
+  for (let ri = 3; ri < headerRowIdx - 1; ri++) {
+    for (let ci = 0; ci < totalCols; ci++) {
+      const cell = XLSX.utils.encode_cell({ r: ri, c: ci });
+      if (ws[cell]) {
+        ws[cell].s = {
+          font: { sz: 10, color: { rgb: "3D3D38" }, name: "Arial" },
+          fill: { fgColor: { rgb: "F4F4F1" }, patternType: "solid" },
+          alignment: { horizontal: ci === 0 ? "left" : "left" },
+        };
+      }
+    }
+    ws["!merges"].push({ s: { r: ri, c: 0 }, e: { r: ri, c: totalCols - 1 } });
+  }
+
+  // Header row — accent blue background
+  for (let ci = 0; ci < totalCols; ci++) {
+    const cell = XLSX.utils.encode_cell({ r: headerRowIdx, c: ci });
+    if (ws[cell]) {
+      ws[cell].s = {
+        font: { bold: true, sz: 10, color: { rgb: "FFFFFF" }, name: "Arial" },
+        fill: { fgColor: { rgb: "1F6FEB" }, patternType: "solid" },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: {
+          bottom: { style: "medium", color: { rgb: "1558C0" } },
+        },
+      };
+    }
+  }
+
+  // Data rows — alternating stripes, status color-coding
+  for (let ri = headerRowIdx + 1; ri < headerRowIdx + 1 + rows.length; ri++) {
+    const isEven = (ri - headerRowIdx) % 2 === 0;
+    const rowBg = isEven ? "F7F7F5" : "FFFFFF";
+    for (let ci = 0; ci < totalCols; ci++) {
+      const cell = XLSX.utils.encode_cell({ r: ri, c: ci });
+      if (!ws[cell]) ws[cell] = { v: "", t: "s" };
+      const val = String(ws[cell].v ?? "");
+
+      // Status column color coding
+      let fontColor = "1A1A17";
+      let cellBg = rowBg;
+      if (val === "Present") { fontColor = "0F7B55"; cellBg = isEven ? "E6F5F0" : "F0FAF6"; }
+      if (val === "Late")    { fontColor = "B45309"; cellBg = isEven ? "FEF3C7" : "FFFBEB"; }
+      if (val === "Absent")  { fontColor = "C0392B"; cellBg = isEven ? "FDECEA" : "FEF2F2"; }
+
+      ws[cell].s = {
+        font: { sz: 10, name: "Arial", color: { rgb: fontColor }, bold: (val === "Present" || val === "Late" || val === "Absent") },
+        fill: { fgColor: { rgb: cellBg }, patternType: "solid" },
+        alignment: { horizontal: ci === 1 ? "left" : "center", vertical: "center" },
+        border: {
+          bottom: { style: "thin", color: { rgb: "E3E3DC" } },
+          right:  { style: "thin", color: { rgb: "E3E3DC" } },
+        },
+      };
+    }
+  }
+
+  // Summary rows — bold, indented
+  const summaryStart = headerRowIdx + 1 + rows.length + 1;
+  for (let ri = summaryStart; ri < totalRows; ri++) {
+    const cell = XLSX.utils.encode_cell({ r: ri, c: 0 });
+    if (ws[cell]) {
+      ws[cell].s = {
+        font: { bold: true, sz: 10, color: { rgb: "1A1A17" }, name: "Arial" },
+        fill: { fgColor: { rgb: "F4F4F1" }, patternType: "solid" },
+      };
+    }
+    const valCell = XLSX.utils.encode_cell({ r: ri, c: 1 });
+    if (ws[valCell]) {
+      ws[valCell].s = {
+        font: { sz: 10, color: { rgb: "1F6FEB" }, name: "Arial" },
+        fill: { fgColor: { rgb: "F4F4F1" }, patternType: "solid" },
+        alignment: { horizontal: "center" },
+      };
+    }
+  }
+
+  // Row heights
+  ws["!rows"] = [];
+  ws["!rows"][0] = { hpt: 32 }; // title
+  ws["!rows"][1] = { hpt: 20 }; // subtitle
+  ws["!rows"][headerRowIdx] = { hpt: 22 }; // header
+  for (let ri = headerRowIdx + 1; ri < headerRowIdx + 1 + rows.length; ri++) {
+    ws["!rows"][ri] = { hpt: 18 };
+  }
+
+  // ── Build workbook & download ──
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Attendance");
+  XLSX.writeFile(wb, filename);
 }
 
-// Teacher: export by month
-function exportTeacherByMonth(records, monthLabel, session) {
-  const title = [
-    [`Monthly Attendance Report — ${monthLabel}`],
-    [`Session: ${session?.subject||"N/A"}`, `Room: ${session?.room||"N/A"}`],
-    [`Exported: ${new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}`],
-    [`Total Records: ${records.length}`],
-    [],
-  ];
-  const headers = ["#", "Student Name", "Student ID", "Grade", "Section", "Status", "Date", "Time"];
-  const rows = records.map((a, i) => {
-    const ts = new Date(a.timestamp);
-    return [i+1, a.student?.name||"N/A", a.student?.studentId||"N/A",
-      a.student?.grade||"N/A", a.student?.section||"N/A",
-      a.status === "present" ? "Present" : "Late",
-      ts.toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" }),
-      ts.toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila" })];
+// ── Teacher: export by specific day ──────────────────────────────────────────
+async function exportTeacherByDay(records, dayLabel, session) {
+  const present = records.filter(a => a.status === "present").length;
+  const late    = records.filter(a => a.status === "late").length;
+  await buildAttendanceXLSX({
+    title:    `Attendance Sheet — ${session?.subject || "N/A"}`,
+    subtitle: `Daily Report · ${dayLabel}`,
+    infoRows: [
+      [`Room: ${session?.room || "N/A"}   |   Date: ${dayLabel}   |   Exported: ${new Date().toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric" })}`],
+    ],
+    headers: ["#", "Student Name", "Student ID", "Grade", "Section", "Status", "Check-in Time"],
+    rows: records.map((a, i) => {
+      const ts = new Date(a.timestamp);
+      return [i+1, a.student?.name||"N/A", a.student?.studentId||"N/A",
+        a.student?.grade||"N/A", a.student?.section||"N/A",
+        a.status === "present" ? "Present" : "Late",
+        xlsxTime(ts)];
+    }),
+    summaryRows: [
+      ["Total Students", records.length],
+      ["Present", present],
+      ["Late", late],
+    ],
+    filename: `${safe(session?.subject)}_${safe(dayLabel)}_daily.xlsx`,
   });
-  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("\n");
-  download(csv, `${safe(session?.subject)}_${safe(monthLabel)}_monthly.csv`);
 }
 
-// Teacher: export full session (all time)
-function exportSessionFull(records, session) {
-  const countByStudent = records.reduce((acc, a) => {
-    const key = a.student?._id || a.student?.studentId || "?";
-    acc[key] = (acc[key] || 0) + 1;
-    return acc;
-  }, {});
-  const title = [
-    [`Full Session Attendance — ${session?.subject||"N/A"}`],
-    [`Room: ${session?.room||"N/A"}`, `Created: ${session?.createdAt ? new Date(session.createdAt).toLocaleDateString("en-PH", {year:"numeric",month:"long",day:"numeric"}) : "N/A"}`],
-    [`Exported: ${new Date().toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}`],
-    [`Total Records: ${records.length}`],
-    [],
-  ];
-  const headers = ["#", "Student Name", "Student ID", "Grade", "Section", "Sessions Attended", "Status", "Date", "Time"];
-  const rows = records.map((a, i) => {
-    const ts = new Date(a.timestamp);
-    const key = a.student?._id || a.student?.studentId || "?";
-    return [i+1, a.student?.name||"N/A", a.student?.studentId||"N/A",
-      a.student?.grade||"N/A", a.student?.section||"N/A",
-      countByStudent[key]||1,
-      a.status === "present" ? "Present" : "Late",
-      ts.toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" }),
-      ts.toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila" })];
+// ── Teacher: export by month ──────────────────────────────────────────────────
+async function exportTeacherByMonth(records, monthLabel, session) {
+  const present = records.filter(a => a.status === "present").length;
+  const late    = records.filter(a => a.status === "late").length;
+  await buildAttendanceXLSX({
+    title:    `Attendance Sheet — ${session?.subject || "N/A"}`,
+    subtitle: `Monthly Report · ${monthLabel}`,
+    infoRows: [
+      [`Room: ${session?.room || "N/A"}   |   Period: ${monthLabel}   |   Exported: ${new Date().toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric" })}`],
+    ],
+    headers: ["#", "Student Name", "Student ID", "Grade", "Section", "Status", "Date", "Check-in Time"],
+    rows: records.map((a, i) => {
+      const ts = new Date(a.timestamp);
+      return [i+1, a.student?.name||"N/A", a.student?.studentId||"N/A",
+        a.student?.grade||"N/A", a.student?.section||"N/A",
+        a.status === "present" ? "Present" : "Late",
+        xlsxDate(ts), xlsxTime(ts)];
+    }),
+    summaryRows: [
+      ["Total Records", records.length],
+      ["Present", present],
+      ["Late", late],
+      ["Attendance Rate", `${records.length ? Math.round((present/records.length)*100) : 0}%`],
+    ],
+    filename: `${safe(session?.subject)}_${safe(monthLabel)}_monthly.xlsx`,
   });
-  const csv = [...title.map(r => r.map(esc).join(",")), csvRow(headers), ...rows.map(csvRow)].join("\n");
-  download(csv, `${safe(session?.subject)}_full_session_${todayStr()}.csv`);
 }
 
-// Legacy wrappers (still used in some places)
+// ── Teacher: export full session ──────────────────────────────────────────────
+async function exportSessionFull(records, session) {
+  const present = records.filter(a => a.status === "present").length;
+  const late    = records.filter(a => a.status === "late").length;
+  const uniqueStudents = new Set(records.map(a => a.student?._id || a.student?.studentId)).size;
+  await buildAttendanceXLSX({
+    title:    `Attendance Sheet — ${session?.subject || "N/A"}`,
+    subtitle: `Full Session Report`,
+    infoRows: [
+      [`Room: ${session?.room || "N/A"}   |   Created: ${session?.createdAt ? xlsxDate(session.createdAt) : "N/A"}   |   Exported: ${new Date().toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric" })}`],
+    ],
+    headers: ["#", "Student Name", "Student ID", "Grade", "Section", "Status", "Date", "Check-in Time"],
+    rows: records.map((a, i) => {
+      const ts = new Date(a.timestamp);
+      return [i+1, a.student?.name||"N/A", a.student?.studentId||"N/A",
+        a.student?.grade||"N/A", a.student?.section||"N/A",
+        a.status === "present" ? "Present" : "Late",
+        xlsxDate(ts), xlsxTime(ts)];
+    }),
+    summaryRows: [
+      ["Total Records", records.length],
+      ["Unique Students", uniqueStudents],
+      ["Present", present],
+      ["Late", late],
+      ["Attendance Rate", `${records.length ? Math.round((present/records.length)*100) : 0}%`],
+    ],
+    filename: `${safe(session?.subject)}_full_session_${todayStr()}.xlsx`,
+  });
+}
+
+// ── Student: export by subject ────────────────────────────────────────────────
+async function exportStudentBySubject(records, subjectName, studentName) {
+  const present = records.filter(a => a.status === "present").length;
+  const late    = records.filter(a => a.status === "late").length;
+  await buildAttendanceXLSX({
+    title:    `Attendance Record — ${studentName}`,
+    subtitle: `Subject Report · ${subjectName}`,
+    infoRows: [
+      [`Student: ${studentName}   |   Subject: ${subjectName}   |   Exported: ${new Date().toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric" })}`],
+    ],
+    headers: ["#", "Subject", "Room", "Teacher", "Status", "Date", "Check-in Time"],
+    rows: records.map((a, i) => {
+      const ts = new Date(a.timestamp);
+      return [i+1, a.session?.subject||"N/A", a.session?.room||"N/A", a.session?.teacher?.name||"N/A",
+        a.status === "present" ? "Present" : "Late",
+        xlsxDate(ts), xlsxTime(ts)];
+    }),
+    summaryRows: [
+      ["Total Sessions", records.length],
+      ["Present", present],
+      ["Late", late],
+      ["Attendance Rate", `${records.length ? Math.round((present/records.length)*100) : 0}%`],
+    ],
+    filename: `${safe(studentName)}_${safe(subjectName)}_${todayStr()}.xlsx`,
+  });
+}
+
+// ── Student: export by month ──────────────────────────────────────────────────
+async function exportStudentByMonth(records, monthLabel, studentName) {
+  const present = records.filter(a => a.status === "present").length;
+  const late    = records.filter(a => a.status === "late").length;
+  await buildAttendanceXLSX({
+    title:    `Attendance Record — ${studentName}`,
+    subtitle: `Monthly Report · ${monthLabel}`,
+    infoRows: [
+      [`Student: ${studentName}   |   Period: ${monthLabel}   |   Exported: ${new Date().toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric" })}`],
+    ],
+    headers: ["#", "Subject", "Room", "Teacher", "Status", "Date", "Check-in Time"],
+    rows: records.map((a, i) => {
+      const ts = new Date(a.timestamp);
+      return [i+1, a.session?.subject||"N/A", a.session?.room||"N/A", a.session?.teacher?.name||"N/A",
+        a.status === "present" ? "Present" : "Late",
+        xlsxDate(ts), xlsxTime(ts)];
+    }),
+    summaryRows: [
+      ["Total Sessions", records.length],
+      ["Present", present],
+      ["Late", late],
+      ["Attendance Rate", `${records.length ? Math.round((present/records.length)*100) : 0}%`],
+    ],
+    filename: `${safe(studentName)}_${safe(monthLabel)}_${todayStr()}.xlsx`,
+  });
+}
+
+// Legacy wrappers
 function exportToExcel(attendance, sessionInfo) { exportSessionFull(attendance, sessionInfo); }
 function exportStudentHistoryToExcel(attendance, studentName) {
   const month = new Date().toLocaleDateString("en-PH", { year:"numeric", month:"long" });
   exportStudentByMonth(attendance, month, studentName);
 }
+
 // ─── DATE HELPERS ─────────────────────────────────────────────────────────────
 const PH = { timeZone: "Asia/Manila" };
 
@@ -2312,82 +2513,33 @@ function ExportPicker({ attendance, session }) {
   const openMode = (m) => { setMode(m); setChecked({}); };
   const closeModal = () => { setMode(null); setChecked({}); };
 
-  // Build CSV content string for a given key (reusing existing export logic)
-  const buildCsvContent = (key) => {
-    const recs = byKey[key];
-    const subjectSafe = (session?.subject || "session").replace(/[^a-z0-9]/gi, "_").toLowerCase();
-    const keySafe = key.replace(/[^a-z0-9]/gi, "_").toLowerCase();
-    const filename = `${subjectSafe}_${mode === "month" ? "monthly" : "daily"}_${keySafe}.csv`;
-
-    const BOM = "\uFEFF";
-    const esc2 = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const row = (arr) => arr.map(esc2).join(",");
-
-    const titleLine = mode === "month"
-      ? `Monthly Attendance Report — ${key}`
-      : `Daily Attendance Report — ${key}`;
-
-    const meta = [
-      [titleLine],
-      [`Session: ${session?.subject || "N/A"}`, `Room: ${session?.room || "N/A"}`],
-      [`Exported: ${new Date().toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric" })}`],
-      [`Total Records: ${recs.length}`],
-      [],
-    ].map(r => r.map(esc2).join(",")).join("\n");
-
-    const headers = mode === "month"
-      ? row(["#","Student Name","Student ID","Grade","Section","Status","Date","Time"])
-      : row(["#","Student Name","Student ID","Grade","Section","Status","Time"]);
-
-    const dataRows = recs.map((a, i) => {
-      const ts = new Date(a.timestamp);
-      const dateStr = ts.toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" });
-      const timeStr = ts.toLocaleTimeString("en-PH", { hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila" });
-      const status  = a.status === "present" ? "Present" : "Late";
-      if (mode === "month")
-        return row([i+1, a.student?.name, a.student?.studentId, a.student?.grade, a.student?.section, status, dateStr, timeStr]);
-      else
-        return row([i+1, a.student?.name, a.student?.studentId, a.student?.grade, a.student?.section, status, timeStr]);
-    }).join("\n");
-
-    return { filename, content: BOM + [meta, headers, dataRows].join("\n") };
-  };
-
-  const handleDownload = () => {
+  // Download one or multiple keys as styled XLSX files
+  const handleDownload = async () => {
     if (selectedKeys.length === 0) return;
     setZipping(true);
-
-    setTimeout(() => {
-      try {
-        if (selectedKeys.length === 1) {
-          // Single file — direct download
-          const { filename, content } = buildCsvContent(selectedKeys[0]);
-          const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
-          URL.revokeObjectURL(url);
+    try {
+      // Download each selected key sequentially
+      for (const key of selectedKeys) {
+        const recs = byKey[key];
+        if (mode === "month") {
+          await exportTeacherByMonth(recs, key, session);
         } else {
-          // Multiple files — ZIP
-          const files = selectedKeys.map(k => {
-            const { filename, content } = buildCsvContent(k);
-            return { name: filename, content };
-          });
-          const subjectSafe = (session?.subject || "session").replace(/[^a-z0-9]/gi, "_").toLowerCase();
-          const zipName = `${subjectSafe}_${mode}_attendance.zip`;
-          downloadZip(files, zipName);
+          await exportTeacherByDay(recs, key, session);
         }
-        closeModal();
-      } catch(e) {
-        console.error("Export error:", e);
-      } finally {
-        setZipping(false);
+        // Small delay between downloads so browser doesn't block them
+        if (selectedKeys.length > 1) await new Promise(r => setTimeout(r, 400));
       }
-    }, 50);
+      closeModal();
+    } catch(e) {
+      console.error("Export error:", e);
+    } finally {
+      setZipping(false);
+    }
   };
 
   return (
     <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
-      <button className="btn btn-excel btn-sm" onClick={() => exportSessionFull(attendance, session)}>⬇ Full</button>
+      <button className="btn btn-excel btn-sm" onClick={() => exportSessionFull(attendance, session)}>⬇ Full XLSX</button>
       <button className="btn btn-excel btn-sm" onClick={() => openMode("month")}>⬇ Monthly</button>
       <button className="btn btn-excel btn-sm" onClick={() => openMode("day")}>⬇ Daily</button>
 
@@ -2446,7 +2598,7 @@ function ExportPicker({ attendance, session }) {
               disabled={selectedKeys.length === 0 || zipping}
               onClick={handleDownload}
             >
-              {zipping ? <Spinner size={16} /> : selectedKeys.length > 1 ? `⬇ Download ${selectedKeys.length} files as ZIP` : selectedKeys.length === 1 ? `⬇ Download ${selectedKeys[0]}` : "Select at least one"}
+              {zipping ? <Spinner size={16} /> : selectedKeys.length > 1 ? `⬇ Download ${selectedKeys.length} XLSX files` : selectedKeys.length === 1 ? `⬇ Download ${selectedKeys[0]}` : "Select at least one"}
             </button>
           </div>
         </div>
