@@ -3010,3 +3010,64 @@ function StudentSettings({ onBack }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function App() {
+  const { user } = useAuth();
+  const [page, setPage] = useState("home");
+  const [qrToken, setQrToken] = useState(null);
+  const [resetToken, setResetToken] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token  = params.get("token");
+    const path   = window.location.pathname;
+    if (path === "/reset-password" && token) {
+      setResetToken(token);
+      setPage("reset-password");
+    } else if (path === "/verify-email" && token) {
+      setResetToken(token);
+      setPage("verify-email");
+    } else if (token) {
+      setQrToken(token);
+      setPage("checkin");
+    }
+  }, []);
+
+  const handleAuthSuccess = () => setPage("home");
+
+  if (page === "reset-password" && resetToken) return <ResetPasswordPage token={resetToken} />;
+  if (page === "verify-email"   && resetToken) return <VerifyEmailPage token={resetToken} />;
+  if (!user) return <AuthPage onSuccess={handleAuthSuccess} />;
+
+  if (page === "checkin" && qrToken) return <CheckInPage token={qrToken} />;
+
+  return (
+    <div className="app">
+      <Nav onSettings={() => setPage("settings")} />
+      <EmailVerificationBanner />
+      {page === "settings" && user.role === "teacher" ? (
+        <TeacherSettings onBack={() => setPage("home")} />
+      ) : page === "settings" && user.role === "student" ? (
+        <StudentSettings onBack={() => setPage("home")} />
+      ) : user.role === "teacher" ? (
+        <TeacherDashboard />
+      ) : (
+        <StudentDashboard />
+      )}
+    </div>
+  );
+}
+
+// ─── ROOT ─────────────────────────────────────────────────────────────────────
+export default function Root() {
+  return (
+    <>
+      <style>{styles}</style>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </>
+  );
+}
