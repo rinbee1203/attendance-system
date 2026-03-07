@@ -10,7 +10,7 @@ const app = express();
 // Middleware
 app.use(cors({
   origin: "*",
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
 app.use(express.json());
@@ -19,7 +19,6 @@ app.use(express.json());
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/sessions", require("./routes/sessions"));
 app.use("/api/attendance", require("./routes/attendance"));
-app.use("/api/security",   require("./routes/security"));
 
 // Health check
 app.get("/api/health", (req, res) => res.json({ status: "OK", message: "Server is running" }));
