@@ -382,9 +382,9 @@ const styles = `
     font-size: 1.05rem; color: var(--ink); letter-spacing: -0.02em;
   }
   .nav-logo-wrap {
-    width: 32px; height: 32px; border-radius: 8px;
-    background: var(--ink); display: flex; align-items: center; justify-content: center;
-    box-shadow: var(--shadow-sm);
+    width: 32px; height: 32px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
   }
   .nav-actions { display: flex; align-items: center; gap: 8px; }
 
@@ -557,8 +557,8 @@ const styles = `
   .auth-header { text-align: center; margin-bottom: 28px; }
   .auth-logo-wrap {
     width: 52px; height: 52px; border-radius: 13px;
-    background: var(--ink); display: inline-flex; align-items: center; justify-content: center;
-    margin-bottom: 18px; box-shadow: var(--shadow-md);
+    display: inline-flex; align-items: center; justify-content: center;
+    margin-bottom: 18px; overflow: hidden;
   }
   .auth-title { font-family: var(--font-heading); font-size: 1.7rem; font-weight: 600; color: var(--ink); letter-spacing: -0.03em; font-style: italic; margin-bottom: 6px; }
   .auth-sub { font-size: 0.88rem; color: var(--ink3); }
@@ -808,7 +808,7 @@ const styles = `
 
   [data-theme="dark"] .nav-brand { color: var(--ink); }
 
-  [data-theme="dark"] .nav-logo-wrap { background: var(--surface2); border: 1px solid var(--border2); }
+  [data-theme="dark"] .nav-logo-wrap { background: transparent; }
 
   [data-theme="dark"] .profile-pill-btn {
     background: var(--surface2);
@@ -924,15 +924,47 @@ const styles = `
 `;
 
 // ─── COMPONENTS ───────────────────────────────────────────────────────────────
+// Logo adapts to light/dark mode automatically
 function Logo({ size = 32 }) {
+  const { dark } = useTheme();
+  // Light mode: deep ink bg with white icon
+  // Dark mode: subtle surface bg with bright accent icon
+  const bg       = dark ? "#2A2A27" : "#1A1A17";
+  const stroke1  = dark ? "#4D8EF0" : "#ffffff";   // primary icon color
+  const stroke2  = dark ? "#34C98A" : "#86efac";   // accent checkmark
+  const opacity  = dark ? "1" : "0.92";
+
   return (
-    <svg width={size} height={size} viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="36" height="36" rx="8" fill="#1A1A17"/>
-      <rect x="9" y="10" width="10" height="2.2" rx="1.1" fill="white" fillOpacity="0.85"/>
-      <rect x="9" y="16.9" width="18" height="2.2" rx="1.1" fill="white" fillOpacity="0.85"/>
-      <rect x="9" y="23.8" width="13" height="2.2" rx="1.1" fill="white" fillOpacity="0.85"/>
-      <circle cx="24" cy="11.1" r="3.8" fill="none" stroke="white" strokeOpacity="0.6" strokeWidth="1.4"/>
-      <path d="M22.2 11.1l1.2 1.2 2.1-2.1" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="logoAccent" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor={dark ? "#4D8EF0" : "#60a5fa"} />
+          <stop offset="100%" stopColor={dark ? "#34C98A" : "#34d399"} />
+        </linearGradient>
+      </defs>
+
+      {/* Background tile */}
+      <rect width="40" height="40" rx="10" fill={bg} />
+
+      {/* Subtle inner glow on dark */}
+      {dark && <rect width="40" height="40" rx="10" fill="url(#logoAccent)" fillOpacity="0.07" />}
+
+      {/* Clipboard body */}
+      <rect x="10" y="13" width="20" height="19" rx="2.5" stroke={stroke1} strokeOpacity={opacity} strokeWidth="1.6" fill="none"/>
+
+      {/* Clipboard top clip */}
+      <rect x="15" y="10" width="10" height="5" rx="2" fill={bg} stroke={stroke1} strokeOpacity={opacity} strokeWidth="1.6"/>
+      <rect x="17.5" y="11.5" width="5" height="2" rx="1" fill={stroke1} fillOpacity="0.5"/>
+
+      {/* Text lines */}
+      <line x1="14" y1="20" x2="22" y2="20" stroke={stroke1} strokeOpacity="0.5" strokeWidth="1.4" strokeLinecap="round"/>
+      <line x1="14" y1="24" x2="26" y2="24" stroke={stroke1} strokeOpacity="0.5" strokeWidth="1.4" strokeLinecap="round"/>
+      <line x1="14" y1="28" x2="20" y2="28" stroke={stroke1} strokeOpacity="0.5" strokeWidth="1.4" strokeLinecap="round"/>
+
+      {/* Checkmark badge — bottom right */}
+      <circle cx="28" cy="28" r="6" fill={bg}/>
+      <circle cx="28" cy="28" r="5.2" fill="url(#logoAccent)"/>
+      <path d="M25.5 28l1.8 1.8 3.2-3.2" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
