@@ -236,7 +236,7 @@ const updateSession = async (req, res) => {
     if (session.teacher.toString() !== req.user._id.toString())
       return res.status(403).json({ success: false, message: "Not authorized." });
 
-    const allowed = ["lateAfterMinutes", "room", "description", "subject"];
+    const allowed = ["lateAfterMinutes", "room", "description", "subject", "allowedGrades", "allowedSections"];
     allowed.forEach(field => {
       if (req.body[field] !== undefined) session[field] = req.body[field];
     });

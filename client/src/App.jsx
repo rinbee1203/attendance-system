@@ -1877,6 +1877,166 @@ function AuthPage({ onSuccess }) {
   );
 }
 
+// ─── GRADE / SECTION FILTER WIDGET ───────────────────────────────────────────
+// Reusable component for both Create and Edit session modals
+const GRADE_OPTIONS = [
+  "Grade 7","Grade 8","Grade 9","Grade 10","Grade 11","Grade 12",
+  "Year 1","Year 2","Year 3","Year 4",
+];
+const SECTION_OPTIONS = [
+  "Nickel","Gold","Silver","Bronze","Iron","Copper",
+  "Section A","Section B","Section C","Section D",
+  "STEM","ABM","HUMSS","GAS","TVL",
+];
+
+function GradeFilterWidget({ allowedGrades, allowedSections, onChange }) {
+  const [gradeInput, setGradeInput] = useState("");
+  const [sectionInput, setSectionInput] = useState("");
+
+  const toggleGrade = (g) => {
+    const updated = allowedGrades.includes(g)
+      ? allowedGrades.filter(x => x !== g)
+      : [...allowedGrades, g];
+    onChange({ allowedGrades: updated, allowedSections });
+  };
+
+  const toggleSection = (s) => {
+    const updated = allowedSections.includes(s)
+      ? allowedSections.filter(x => x !== s)
+      : [...allowedSections, s];
+    onChange({ allowedGrades, allowedSections: updated });
+  };
+
+  const addCustomGrade = () => {
+    const val = gradeInput.trim();
+    if (!val || allowedGrades.includes(val)) return;
+    onChange({ allowedGrades: [...allowedGrades, val], allowedSections });
+    setGradeInput("");
+  };
+
+  const addCustomSection = () => {
+    const val = sectionInput.trim();
+    if (!val || allowedSections.includes(val)) return;
+    onChange({ allowedGrades, allowedSections: [...allowedSections, val] });
+    setSectionInput("");
+  };
+
+  const clearAll = () => onChange({ allowedGrades: [], allowedSections: [] });
+
+  const isFiltered = allowedGrades.length > 0 || allowedSections.length > 0;
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+
+      {/* Filter status banner */}
+      <div style={{
+        padding:"10px 14px", borderRadius:"var(--radius-sm)",
+        background: isFiltered ? "var(--accent-lt)" : "var(--surface2)",
+        border: `1px solid ${isFiltered ? "var(--accent)" : "var(--border)"}`,
+        display:"flex", alignItems:"center", gap:10,
+      }}>
+        <span style={{ fontSize:"1.1rem" }}>{isFiltered ? "🔒" : "🌐"}</span>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:"0.82rem", fontWeight:700, color: isFiltered ? "var(--accent-dk)" : "var(--ink)" }}>
+            {isFiltered ? "Restricted — only selected students can scan" : "Open to all students"}
+          </div>
+          {isFiltered && (
+            <div style={{ fontSize:"0.73rem", color:"var(--accent-dk)", marginTop:2 }}>
+              {allowedGrades.length > 0 && <span>Grades: {allowedGrades.join(", ")} </span>}
+              {allowedSections.length > 0 && <span>· Sections: {allowedSections.join(", ")}</span>}
+            </div>
+          )}
+        </div>
+        {isFiltered && (
+          <button type="button" onClick={clearAll} style={{ fontSize:"0.72rem", color:"var(--red)", background:"none", border:"none", cursor:"pointer", fontWeight:600 }}>
+            Clear all
+          </button>
+        )}
+      </div>
+
+      {/* Grade selector */}
+      <div>
+        <div style={{ fontSize:"0.75rem", fontWeight:700, color:"var(--ink3)", textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>
+          Grade Level
+        </div>
+        <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:8 }}>
+          {GRADE_OPTIONS.map(g => {
+            const selected = allowedGrades.includes(g);
+            return (
+              <button key={g} type="button" onClick={() => toggleGrade(g)} style={{
+                padding:"5px 12px", borderRadius:20, fontSize:"0.76rem", fontWeight:600,
+                cursor:"pointer", transition:"all 0.12s", border:"1px solid",
+                borderColor: selected ? "var(--accent)" : "var(--border)",
+                background:  selected ? "var(--accent)" : "var(--surface2)",
+                color:       selected ? "#fff" : "var(--ink3)",
+              }}>
+                {selected ? "✓ " : ""}{g}
+              </button>
+            );
+          })}
+        </div>
+        {/* Custom grade input */}
+        <div style={{ display:"flex", gap:6 }}>
+          <input
+            className="form-input" style={{ flex:1, padding:"6px 10px", fontSize:"0.8rem" }}
+            placeholder="Custom grade (e.g. Year 3)" value={gradeInput}
+            onChange={e => setGradeInput(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addCustomGrade())}
+          />
+          <button type="button" className="btn btn-ghost btn-sm" onClick={addCustomGrade} disabled={!gradeInput.trim()}>Add</button>
+        </div>
+        {/* Selected custom grades not in preset */}
+        {allowedGrades.filter(g => !GRADE_OPTIONS.includes(g)).map(g => (
+          <span key={g} style={{ display:"inline-flex", alignItems:"center", gap:4, margin:"4px 4px 0 0", padding:"3px 9px", borderRadius:20, fontSize:"0.74rem", background:"var(--accent)", color:"#fff", fontWeight:600 }}>
+            {g}
+            <button type="button" onClick={() => toggleGrade(g)} style={{ background:"none", border:"none", color:"#fff", cursor:"pointer", fontSize:"0.7rem", lineHeight:1, padding:"0 0 0 2px" }}>✕</button>
+          </span>
+        ))}
+      </div>
+
+      {/* Section selector */}
+      <div>
+        <div style={{ fontSize:"0.75rem", fontWeight:700, color:"var(--ink3)", textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>
+          Section
+        </div>
+        <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:8 }}>
+          {SECTION_OPTIONS.map(s => {
+            const selected = allowedSections.includes(s);
+            return (
+              <button key={s} type="button" onClick={() => toggleSection(s)} style={{
+                padding:"5px 12px", borderRadius:20, fontSize:"0.76rem", fontWeight:600,
+                cursor:"pointer", transition:"all 0.12s", border:"1px solid",
+                borderColor: selected ? "var(--green)" : "var(--border)",
+                background:  selected ? "var(--green)" : "var(--surface2)",
+                color:       selected ? "#fff" : "var(--ink3)",
+              }}>
+                {selected ? "✓ " : ""}{s}
+              </button>
+            );
+          })}
+        </div>
+        {/* Custom section input */}
+        <div style={{ display:"flex", gap:6 }}>
+          <input
+            className="form-input" style={{ flex:1, padding:"6px 10px", fontSize:"0.8rem" }}
+            placeholder="Custom section (e.g. BSCS-2A)" value={sectionInput}
+            onChange={e => setSectionInput(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addCustomSection())}
+          />
+          <button type="button" className="btn btn-ghost btn-sm" onClick={addCustomSection} disabled={!sectionInput.trim()}>Add</button>
+        </div>
+        {/* Selected custom sections not in preset */}
+        {allowedSections.filter(s => !SECTION_OPTIONS.includes(s)).map(s => (
+          <span key={s} style={{ display:"inline-flex", alignItems:"center", gap:4, margin:"4px 4px 0 0", padding:"3px 9px", borderRadius:20, fontSize:"0.74rem", background:"var(--green)", color:"#fff", fontWeight:600 }}>
+            {s}
+            <button type="button" onClick={() => toggleSection(s)} style={{ background:"none", border:"none", color:"#fff", cursor:"pointer", fontSize:"0.7rem", lineHeight:1, padding:"0 0 0 2px" }}>✕</button>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── EDIT SESSION MODAL ───────────────────────────────────────────────────────
 function EditSessionModal({ session, onClose, onSaved }) {
   useEscKey(onClose);
@@ -1885,6 +2045,8 @@ function EditSessionModal({ session, onClose, onSaved }) {
     room:             session.room || "",
     description:      session.description || "",
     lateAfterMinutes: session.lateAfterMinutes ?? 15,
+    allowedGrades:    session.allowedGrades || [],
+    allowedSections:  session.allowedSections || [],
   });
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState("");
@@ -1961,6 +2123,19 @@ function EditSessionModal({ session, onClose, onSaved }) {
           </p>
         </div>
 
+        {/* Student Filter */}
+        <div className="form-group">
+          <label className="form-label">
+            Student Filter
+            <span style={{ color:"var(--muted)", fontWeight:400, textTransform:"none", letterSpacing:0 }}> (restrict by grade/section)</span>
+          </label>
+          <GradeFilterWidget
+            allowedGrades={form.allowedGrades}
+            allowedSections={form.allowedSections}
+            onChange={({ allowedGrades, allowedSections }) => setForm(f => ({ ...f, allowedGrades, allowedSections }))}
+          />
+        </div>
+
         {/* Description */}
         <div className="form-group">
           <label className="form-label">Description</label>
@@ -1997,7 +2172,7 @@ function EditSessionModal({ session, onClose, onSaved }) {
 // ─── CREATE SESSION MODAL ─────────────────────────────────────────────────────
 function CreateSessionModal({ onClose, onCreated }) {
   const defaultEnd = getDefaultEndDate();
-  const [form, setForm] = useState({ subject: "", room: "", description: "", expiresAt: defaultEnd, lateAfterMinutes: 15 });
+  const [form, setForm] = useState({ subject: "", room: "", description: "", expiresAt: defaultEnd, lateAfterMinutes: 15, allowedGrades: [], allowedSections: [] });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   useEscKey(onClose);
@@ -2059,6 +2234,17 @@ function CreateSessionModal({ onClose, onCreated }) {
             <p className="form-hint" style={{ marginTop:6 }}>
               Students who scan after <strong>{form.lateAfterMinutes} minutes</strong> from when you press Start will be marked <span style={{ color:"var(--amber)", fontWeight:600 }}>Late</span>.
             </p>
+          </div>
+          <div className="form-group">
+            <label className="form-label">
+              Student Filter
+              <span style={{ color:"var(--muted)", fontWeight:400, textTransform:"none", letterSpacing:0 }}> (optional — restrict by grade/section)</span>
+            </label>
+            <GradeFilterWidget
+              allowedGrades={form.allowedGrades}
+              allowedSections={form.allowedSections}
+              onChange={({ allowedGrades, allowedSections }) => setForm(f => ({ ...f, allowedGrades, allowedSections }))}
+            />
           </div>
           <div className="form-group">
             <label className="form-label">Description</label>
@@ -2857,6 +3043,13 @@ function TeacherDashboard() {
                           <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/></svg>
                           Late after {session.lateAfterMinutes ?? 15}m
                         </span>
+                        {/* Restriction chip */}
+                        {(session.allowedGrades?.length > 0 || session.allowedSections?.length > 0) && (
+                          <span className="session-meta-chip" style={{ borderColor:"var(--amber)", color:"var(--amber)", background:"var(--amber-lt)" }}>
+                            <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/></svg>
+                            Restricted
+                          </span>
+                        )}
                         {/* Live badge */}
                         {session.isActive && (
                           <span className="session-meta-chip chip-live">
@@ -3003,9 +3196,31 @@ function CheckInPage({ token }) {
         )}
         {status === "error" && (
           <div className="error-card">
-            <span className="checkin-icon">❌</span>
-            <h2 className="checkin-title" style={{ color: "var(--accent2)" }}>Check-in Failed</h2>
-            <p style={{ color: "var(--text-dim)" }}>{message}</p>
+            {message?.includes("restricted") || message?.includes("grade") || message?.includes("section") || message?.includes("Grade") || message?.includes("Section") ? (
+              <>
+                <span className="checkin-icon">🔒</span>
+                <h2 className="checkin-title" style={{ color:"var(--amber)" }}>Access Restricted</h2>
+                <p style={{ color:"var(--text-dim)", fontSize:"0.9rem", lineHeight:1.6 }}>{message}</p>
+                {user && (
+                  <div style={{ marginTop:16, padding:"12px 16px", background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)", fontSize:"0.82rem", color:"var(--ink3)", textAlign:"left" }}>
+                    <div style={{ fontWeight:700, marginBottom:6, color:"var(--ink)" }}>Your profile</div>
+                    <div>Grade: <strong>{user.grade || <span style={{ color:"var(--red)" }}>Not set</span>}</strong></div>
+                    <div>Section: <strong>{user.section || <span style={{ color:"var(--red)" }}>Not set</span>}</strong></div>
+                    {(!user.grade || !user.section) && (
+                      <div style={{ marginTop:8, color:"var(--amber)", fontSize:"0.78rem" }}>
+                        ⚠ Update your grade and section in Settings so teachers can identify you.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <span className="checkin-icon">❌</span>
+                <h2 className="checkin-title" style={{ color:"var(--accent2)" }}>Check-in Failed</h2>
+                <p style={{ color:"var(--text-dim)" }}>{message}</p>
+              </>
+            )}
           </div>
         )}
       </div>

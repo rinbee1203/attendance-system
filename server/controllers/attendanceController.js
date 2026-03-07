@@ -42,6 +42,31 @@ const checkIn = async (req, res) => {
       return res.status(400).json({ success: false, message: "You have already marked attendance for today's session." });
     }
 
+    // ── Grade / Section filter ────────────────────────────────────────────────
+    const student = req.user;
+    if (session.allowedGrades && session.allowedGrades.length > 0) {
+      const sg = (student.grade || "").trim().toLowerCase();
+      const allowed = session.allowedGrades.map(g => g.trim().toLowerCase());
+      if (!allowed.includes(sg)) {
+        return res.status(403).json({
+          success: false,
+          message: `This session is restricted to: ${session.allowedGrades.join(", ")}. Your grade (${student.grade || "not set"}) is not allowed.`,
+          restricted: true,
+        });
+      }
+    }
+    if (session.allowedSections && session.allowedSections.length > 0) {
+      const ss = (student.section || "").trim().toLowerCase();
+      const allowed = session.allowedSections.map(s => s.trim().toLowerCase());
+      if (!allowed.includes(ss)) {
+        return res.status(403).json({
+          success: false,
+          message: `This session is restricted to: ${session.allowedSections.join(", ")}. Your section (${student.section || "not set"}) is not allowed.`,
+          restricted: true,
+        });
+      }
+    }
+
     // Determine status — use activatedAt (when teacher pressed Start THIS session)
     // Falls back to startTime if activatedAt not set (backward compat)
     let status = "present";

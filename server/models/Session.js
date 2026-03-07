@@ -13,6 +13,8 @@ const sessionSchema = new mongoose.Schema(
     description:      { type: String, trim: true },
     activatedAt:      { type: Date, default: null },  // resets every time teacher starts session
     lateAfterMinutes: { type: Number, default: 15 },  // configurable grace period (minutes)
+    allowedGrades:   { type: [String], default: [] }, // empty = all grades allowed
+    allowedSections: { type: [String], default: [] }, // empty = all sections allowed
   },
   { timestamps: true }
 );
