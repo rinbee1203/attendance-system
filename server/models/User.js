@@ -19,9 +19,27 @@ const userSchema = new mongoose.Schema(
     // Student personal info
     birthdate: { type: Date, default: null },
 
+    // Email verification
+    isVerified: { type: Boolean, default: false },
+    verifyEmailToken: { type: String, default: null },
+    verifyEmailExpires: { type: Date, default: null },
+
     // Password reset
     resetPasswordToken: { type: String, default: null },
     resetPasswordExpires: { type: Date, default: null },
+
+    // Login activity log (last 20 entries)
+    loginHistory: [{
+      ip:        { type: String },
+      userAgent: { type: String },
+      city:      { type: String },
+      at:        { type: Date, default: Date.now },
+      success:   { type: Boolean, default: true },
+    }],
+
+    // Rate limiting — failed login tracking
+    failedLoginAttempts: { type: Number, default: 0 },
+    lockUntil:           { type: Date, default: null },
 
     // Teacher professional info
     school:        { type: String, trim: true },

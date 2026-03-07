@@ -57,6 +57,7 @@ const userPayload = (user) => ({
   department: user.department || null,
   yearsTeaching: user.yearsTeaching || null,
   phoneNumber: user.phoneNumber || null,
+  isVerified: user.isVerified || false,
 });
 
 // @desc    Register user
@@ -87,11 +88,39 @@ const register = async (req, res) => {
       section: role === "student" ? section : undefined, // ← NEW (only for students)
     });
 
+    // Send verification email (non-blocking — don't fail registration if email fails)
+    try {
+      const vToken = require("crypto").randomBytes(32).toString("hex");
+      const vHash  = require("crypto").createHash("sha256").update(vToken).digest("hex");
+      user.verifyEmailToken   = vHash;
+      user.verifyEmailExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      await user.save({ validateBeforeSave: false });
+      const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
+      const verifyUrl  = `${CLIENT_URL}/verify-email?token=${vToken}`;
+      sendEmail({
+        to: user.email,
+        subject: "Verify your AttendQR email address",
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#F7F7F5;border-radius:16px;">
+            <div style="background:#1A1A17;border-radius:10px;padding:10px 16px;display:inline-block;margin-bottom:24px;">
+              <span style="color:#fff;font-weight:700;">AttendQR</span>
+            </div>
+            <h2 style="color:#1A1A17;margin:0 0 8px;">Verify your email</h2>
+            <p style="color:#555;margin:0 0 24px;font-size:0.9rem;">Hi <strong>${user.name}</strong>, welcome to AttendQR! Click below to verify your email address.</p>
+            <a href="${verifyUrl}" style="display:inline-block;background:#1A1A17;color:#fff;text-decoration:none;padding:13px 28px;border-radius:9px;font-weight:600;margin-bottom:20px;">Verify Email Address</a>
+            <p style="color:#888;font-size:0.8rem;">This link expires in 24 hours.</p>
+            <hr style="border:none;border-top:1px solid #E3E3DC;margin:20px 0;">
+            <p style="color:#aaa;font-size:0.75rem;">AttendQR · QR-based Attendance System</p>
+          </div>
+        `,
+      }).catch(e => console.error("Verification email error:", e.message));
+    } catch(e) { console.error("Verification token error:", e.message); }
+
     const token = generateToken(user._id);
 
     res.status(201).json({
       success: true,
-      message: "Registration successful!",
+      message: "Registration successful! Please check your email to verify your account.",
       token,
       user: userPayload(user),
     });
@@ -115,10 +144,47 @@ const login = async (req, res) => {
       return res.status(400).json({ success: false, message: "Please provide email and password." });
     }
 
-    const user = await User.findOne({ email }).select("+password");
-    if (!user || !(await user.comparePassword(password))) {
+    const user = await User.findOne({ email }).select("+password +failedLoginAttempts +lockUntil +loginHistory");
+    
+    // ── Rate limiting: check if account is locked ──
+    const MAX_ATTEMPTS = 5;
+    const LOCK_MINUTES = 15;
+    if (user && user.lockUntil && user.lockUntil > Date.now()) {
+      const remaining = Math.ceil((user.lockUntil - Date.now()) / 60000);
+      return res.status(429).json({ success: false, message: `Too many failed attempts. Account locked for ${remaining} more minute${remaining !== 1 ? "s" : ""}.` });
+    }
+
+    // ── Validate credentials ──
+    const isMatch = user && await user.comparePassword(password);
+    if (!user || !isMatch) {
+      // Log failed attempt
+      if (user) {
+        user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
+        if (user.failedLoginAttempts >= MAX_ATTEMPTS) {
+          user.lockUntil = new Date(Date.now() + LOCK_MINUTES * 60 * 1000);
+          await user.save({ validateBeforeSave: false });
+          return res.status(429).json({ success: false, message: `Too many failed attempts. Account locked for ${LOCK_MINUTES} minutes.` });
+        }
+        // Log failed login in history
+        const ua = req.headers["user-agent"] || "Unknown";
+        user.loginHistory = user.loginHistory || [];
+        user.loginHistory.push({ ip: req.ip, userAgent: ua.slice(0, 120), success: false });
+        if (user.loginHistory.length > 20) user.loginHistory = user.loginHistory.slice(-20);
+        await user.save({ validateBeforeSave: false });
+        const left = MAX_ATTEMPTS - user.failedLoginAttempts;
+        return res.status(401).json({ success: false, message: `Invalid email or password. ${left} attempt${left !== 1 ? "s" : ""} remaining before lockout.` });
+      }
       return res.status(401).json({ success: false, message: "Invalid email or password." });
     }
+
+    // ── Successful login — reset failed attempts & log activity ──
+    const ua = req.headers["user-agent"] || "Unknown";
+    user.failedLoginAttempts = 0;
+    user.lockUntil = undefined;
+    user.loginHistory = user.loginHistory || [];
+    user.loginHistory.push({ ip: req.ip, userAgent: ua.slice(0, 120), success: true });
+    if (user.loginHistory.length > 20) user.loginHistory = user.loginHistory.slice(-20);
+    await user.save({ validateBeforeSave: false });
 
     const token = generateToken(user._id);
 
@@ -126,7 +192,7 @@ const login = async (req, res) => {
       success: true,
       message: "Login successful!",
       token,
-      user: userPayload(user), // ← now includes grade & section
+      user: { ...userPayload(user), isVerified: user.isVerified || false },
     });
   } catch (error) {
     res.status(500).json({ success: false, message: "Server error. Please try again." });
