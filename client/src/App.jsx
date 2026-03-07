@@ -864,7 +864,11 @@ function VerifyEmailPage({ token }) {
         {status === "verifying" && (
           <>
             <Spinner size={32} style={{ margin:"0 auto 16px" }} />
-            <p style={{ color:"var(--ink3)" }}>Verifying your email…</p>
+            <p style={{ color:"var(--ink3)", marginBottom:16 }}>Verifying your email…</p>
+            <div style={{ background:"var(--amber-lt)", border:"1px solid #f0d090", borderRadius:"var(--radius-sm)", padding:"11px 13px", fontSize:"0.78rem", color:"var(--amber)", textAlign:"left", lineHeight:1.6 }}>
+              <strong>⚠️ Seeing a browser security warning?</strong><br/>
+              Click <strong>Advanced</strong> → <strong>Proceed to shs-attendqr.vercel.app</strong> to continue.
+            </div>
           </>
         )}
         {status === "success" && (
@@ -873,13 +877,17 @@ function VerifyEmailPage({ token }) {
             <h2 className="auth-title">Email Verified!</h2>
             <p style={{ color:"var(--ink3)", marginBottom:22, fontSize:"0.88rem" }}>Your email has been verified successfully. You can now sign in.</p>
             <a href="/" className="btn btn-primary btn-lg" style={{ display:"inline-flex" }}>Go to Sign In</a>
+            <p style={{ marginTop:14, fontSize:"0.75rem", color:"var(--muted)" }}>⚠️ If your browser showed a warning before this page, that is normal — click <strong>Advanced → Proceed</strong> to continue.</p>
           </>
         )}
         {status === "error" && (
           <>
             <div style={{ fontSize:"3rem", marginBottom:14 }}>❌</div>
             <h2 className="auth-title" style={{ color:"var(--red)" }}>Verification Failed</h2>
-            <p style={{ color:"var(--ink3)", marginBottom:22, fontSize:"0.88rem" }}>{msg || "The link is invalid or has expired."}</p>
+            <p style={{ color:"var(--ink3)", marginBottom:16, fontSize:"0.88rem" }}>{msg || "The link is invalid or has expired."}</p>
+            <p style={{ fontSize:"0.78rem", color:"var(--muted)", marginBottom:20, background:"var(--amber-lt)", border:"1px solid #f0d090", borderRadius:"var(--radius-sm)", padding:"10px 12px" }}>
+              💡 If your browser showed a <strong>privacy warning</strong> when clicking the link, go back to the email, click the link again, then choose <strong>Advanced → Proceed to site</strong>.
+            </p>
             <a href="/" className="btn btn-ghost btn-lg" style={{ display:"inline-flex" }}>← Back to Sign In</a>
           </>
         )}
