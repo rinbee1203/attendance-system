@@ -1343,10 +1343,12 @@ function Nav({ onSettings }) {
 
                   {/* Actions */}
                   <div className="profile-popup-actions">
-                    <button className="profile-popup-btn" onClick={() => { setOpen(false); onSettings(); }}>
-                      <span>{user.role === "teacher" ? "⚙" : "✏️"}</span>
-                      {user.role === "teacher" ? "Settings" : "Edit Profile"}
-                    </button>
+                    {user.role !== "admin" && (
+                      <button className="profile-popup-btn" onClick={() => { setOpen(false); onSettings(); }}>
+                        <span>{user.role === "teacher" ? "⚙" : "✏️"}</span>
+                        {user.role === "teacher" ? "Settings" : "Edit Profile"}
+                      </button>
+                    )}
                     <button className="profile-popup-btn danger" onClick={() => { setOpen(false); logout(); }}>
                       <span>→</span> Sign out
                     </button>
@@ -3969,6 +3971,373 @@ function StudentSettings({ onBack }) {
   );
 }
 
+
+// ─── ADMIN DASHBOARD ─────────────────────────────────────────────────────────
+
+function AdminStatCard({ icon, label, value, sub, color }) {
+  return (
+    <div style={{
+      background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--radius-lg)",
+      padding:"20px 24px", display:"flex", alignItems:"center", gap:16, boxShadow:"var(--shadow-xs)",
+    }}>
+      <div style={{ width:44, height:44, borderRadius:12, background:`${color}22`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.4rem", flexShrink:0 }}>{icon}</div>
+      <div>
+        <div style={{ fontSize:"1.6rem", fontWeight:800, color:"var(--ink)", lineHeight:1 }}>{value ?? <Spinner size={18}/>}</div>
+        <div style={{ fontSize:"0.8rem", fontWeight:600, color:"var(--ink3)", marginTop:3 }}>{label}</div>
+        {sub && <div style={{ fontSize:"0.72rem", color:"var(--muted)", marginTop:2 }}>{sub}</div>}
+      </div>
+    </div>
+  );
+}
+
+function AdminBadge({ children, color }) {
+  const colors = {
+    green:  { bg:"var(--green-lt)",  text:"var(--green)" },
+    red:    { bg:"var(--red-lt)",    text:"var(--red)" },
+    amber:  { bg:"var(--amber-lt)",  text:"var(--amber)" },
+    blue:   { bg:"var(--accent-lt)", text:"var(--accent)" },
+    gray:   { bg:"var(--surface2)",  text:"var(--ink3)" },
+  };
+  const col = colors[color] || colors.gray;
+  return (
+    <span style={{ display:"inline-flex", alignItems:"center", padding:"2px 9px", borderRadius:20, fontSize:"0.72rem", fontWeight:700, background:col.bg, color:col.text }}>
+      {children}
+    </span>
+  );
+}
+
+function AdminUserRow({ user, onDelete, onVerify, onUnverify, onView }) {
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <div style={{
+      display:"flex", alignItems:"center", gap:12, padding:"12px 16px",
+      borderRadius:"var(--radius-sm)", border:"1px solid var(--border)",
+      background:"var(--surface)", transition:"background 0.1s",
+    }}>
+      <AvatarCircle name={user.name} picture={user.profilePicture} size={36} radius={18} fontSize="0.85rem" />
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+          <span style={{ fontWeight:700, fontSize:"0.88rem", color:"var(--ink)" }}>{user.name}</span>
+          <AdminBadge color={user.role === "teacher" ? "blue" : "gray"}>{user.role}</AdminBadge>
+          {user.isVerified
+            ? <AdminBadge color="green">✓ Verified</AdminBadge>
+            : <AdminBadge color="amber">⚠ Unverified</AdminBadge>}
+        </div>
+        <div style={{ fontSize:"0.75rem", color:"var(--muted)", marginTop:2, display:"flex", gap:10, flexWrap:"wrap" }}>
+          <span>{user.email}</span>
+          {user.grade && <span>· {user.grade}</span>}
+          {user.section && <span>· {user.section}</span>}
+          {user.studentId && <span>· ID: {user.studentId}</span>}
+          <span style={{ color:"var(--border2)" }}>· Joined {new Date(user.createdAt).toLocaleDateString("en-PH",{month:"short",day:"numeric",year:"numeric"})}</span>
+        </div>
+      </div>
+      <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+        <button className="btn btn-ghost btn-sm" onClick={() => onView(user)} title="View details" style={{ fontSize:"0.8rem" }}>👁</button>
+        {!user.isVerified
+          ? <button className="btn btn-ghost btn-sm" onClick={() => onVerify(user._id)} style={{ color:"var(--green)", fontSize:"0.8rem" }} title="Manually verify">✓</button>
+          : <button className="btn btn-ghost btn-sm" onClick={() => onUnverify(user._id)} style={{ color:"var(--amber)", fontSize:"0.8rem" }} title="Revoke verification">✗</button>}
+        {!confirming
+          ? <button className="btn btn-ghost btn-sm" onClick={() => setConfirming(true)} style={{ color:"var(--red)", fontSize:"0.8rem" }} title="Delete">🗑</button>
+          : <div style={{ display:"flex", gap:4 }}>
+              <button className="btn btn-sm" onClick={() => onDelete(user._id)} style={{ background:"var(--red)", color:"#fff", border:"none", fontSize:"0.75rem", padding:"4px 10px" }}>Delete</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setConfirming(false)} style={{ fontSize:"0.75rem" }}>Cancel</button>
+            </div>}
+      </div>
+    </div>
+  );
+}
+
+function AdminSessionRow({ session, onStop, onDelete }) {
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [confirmStop, setConfirmStop] = useState(false);
+  return (
+    <div style={{
+      display:"flex", alignItems:"center", gap:12, padding:"12px 16px",
+      borderRadius:"var(--radius-sm)", border:"1px solid var(--border)",
+      background:"var(--surface)",
+    }}>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+          <span style={{ fontWeight:700, fontSize:"0.88rem", color:"var(--ink)" }}>{session.subject}</span>
+          {session.isActive
+            ? <AdminBadge color="green">● Live</AdminBadge>
+            : session.endTime
+              ? <AdminBadge color="gray">Ended</AdminBadge>
+              : <AdminBadge color="amber">Idle</AdminBadge>}
+          {session.room && <span style={{ fontSize:"0.75rem", color:"var(--muted)" }}>📍 {session.room}</span>}
+        </div>
+        <div style={{ fontSize:"0.75rem", color:"var(--muted)", marginTop:2, display:"flex", gap:10, flexWrap:"wrap" }}>
+          <span>👤 {session.teacher?.name || "Unknown"}</span>
+          <span>· {session.attendanceCount ?? 0} check-ins</span>
+          <span>· Created {new Date(session.createdAt).toLocaleDateString("en-PH",{month:"short",day:"numeric",year:"numeric"})}</span>
+          {session.activatedAt && <span>· Started {new Date(session.activatedAt).toLocaleTimeString("en-PH",{hour:"2-digit",minute:"2-digit"})}</span>}
+        </div>
+      </div>
+      <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+        {session.isActive && (
+          !confirmStop
+            ? <button className="btn btn-ghost btn-sm" onClick={() => setConfirmStop(true)} style={{ color:"var(--amber)", fontSize:"0.8rem" }}>⏹ Stop</button>
+            : <div style={{ display:"flex", gap:4 }}>
+                <button className="btn btn-sm" onClick={() => { onStop(session._id); setConfirmStop(false); }} style={{ background:"var(--amber)", color:"#fff", border:"none", fontSize:"0.75rem", padding:"4px 10px" }}>Confirm</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setConfirmStop(false)} style={{ fontSize:"0.75rem" }}>Cancel</button>
+              </div>
+        )}
+        {!confirmDel
+          ? <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDel(true)} style={{ color:"var(--red)", fontSize:"0.8rem" }}>🗑</button>
+          : <div style={{ display:"flex", gap:4 }}>
+              <button className="btn btn-sm" onClick={() => onDelete(session._id)} style={{ background:"var(--red)", color:"#fff", border:"none", fontSize:"0.75rem", padding:"4px 10px" }}>Delete</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDel(false)} style={{ fontSize:"0.75rem" }}>Cancel</button>
+            </div>}
+      </div>
+    </div>
+  );
+}
+
+function AdminUserDetailModal({ user, onClose, onDelete, onVerify, onUnverify }) {
+  useEscKey(onClose);
+  const [confirming, setConfirming] = useState(false);
+  if (!user) return null;
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" style={{ maxWidth:480 }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="modal-title">User Details</h2>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body" style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:16 }}>
+            <AvatarCircle name={user.name} picture={user.profilePicture} size={56} radius={28} fontSize="1.2rem" />
+            <div>
+              <div style={{ fontWeight:800, fontSize:"1.1rem", color:"var(--ink)" }}>{user.name}</div>
+              <div style={{ fontSize:"0.8rem", color:"var(--muted)", marginTop:2 }}>{user.email}</div>
+              <div style={{ display:"flex", gap:6, marginTop:6, flexWrap:"wrap" }}>
+                <AdminBadge color={user.role === "teacher" ? "blue" : "gray"}>{user.role}</AdminBadge>
+                {user.isVerified ? <AdminBadge color="green">✓ Verified</AdminBadge> : <AdminBadge color="amber">⚠ Unverified</AdminBadge>}
+              </div>
+            </div>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+            {[
+              ["Student ID", user.studentId],
+              ["Grade", user.grade],
+              ["Section", user.section],
+              ["Birthdate", user.birthdate ? new Date(user.birthdate).toLocaleDateString("en-PH") : null],
+              ["Phone", user.phoneNumber],
+              ["School", user.school],
+              ["Department", user.department],
+              ["Joined", new Date(user.createdAt).toLocaleDateString("en-PH",{month:"long",day:"numeric",year:"numeric"})],
+            ].filter(([,v]) => v).map(([label, val]) => (
+              <div key={label} style={{ background:"var(--surface2)", borderRadius:"var(--radius-sm)", padding:"10px 12px" }}>
+                <div style={{ fontSize:"0.7rem", color:"var(--muted)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</div>
+                <div style={{ fontSize:"0.85rem", color:"var(--ink)", marginTop:3, fontWeight:600 }}>{val}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            {!user.isVerified
+              ? <button className="btn btn-primary btn-sm" onClick={() => { onVerify(user._id); onClose(); }} style={{ background:"var(--green)", borderColor:"var(--green)" }}>✓ Verify Account</button>
+              : <button className="btn btn-ghost btn-sm" onClick={() => { onUnverify(user._id); onClose(); }} style={{ color:"var(--amber)" }}>✗ Revoke Verification</button>}
+            {!confirming
+              ? <button className="btn btn-ghost btn-sm" onClick={() => setConfirming(true)} style={{ color:"var(--red)" }}>🗑 Delete Account</button>
+              : <div style={{ display:"flex", gap:6 }}>
+                  <span style={{ fontSize:"0.8rem", color:"var(--red)", alignSelf:"center" }}>Are you sure?</span>
+                  <button className="btn btn-sm" onClick={() => { onDelete(user._id); onClose(); }} style={{ background:"var(--red)", color:"#fff", border:"none" }}>Yes, delete</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setConfirming(false)}>Cancel</button>
+                </div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminDashboard() {
+  const [tab, setTab]           = useState("users");
+  const [stats, setStats]       = useState(null);
+  const [users, setUsers]       = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading]   = useState(false);
+  const [search, setSearch]     = useState("");
+  const [roleFilter, setRoleFilter]     = useState("");
+  const [verifiedFilter, setVerifiedFilter] = useState("");
+  const [sessionFilter, setSessionFilter]   = useState("");
+  const [toast, setToast]       = useState(null);
+  const [viewUser, setViewUser] = useState(null);
+
+  const showToast = (msg, type = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const loadStats = async () => {
+    try { const d = await api.get("/admin/stats"); setStats(d.stats); } catch(e) {}
+  };
+
+  const loadUsers = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (search)        params.set("search",   search);
+      if (roleFilter)    params.set("role",      roleFilter);
+      if (verifiedFilter !== "") params.set("verified", verifiedFilter);
+      const d = await api.get(`/admin/users?${params}`);
+      setUsers(d.users || []);
+    } catch(e) { showToast(e.message, "error"); }
+    finally { setLoading(false); }
+  };
+
+  const loadSessions = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (sessionFilter !== "") params.set("active", sessionFilter);
+      if (search) params.set("search", search);
+      const d = await api.get(`/admin/sessions?${params}`);
+      setSessions(d.sessions || []);
+    } catch(e) { showToast(e.message, "error"); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { loadStats(); }, []);
+  useEffect(() => {
+    if (tab === "users") loadUsers();
+    if (tab === "sessions") loadSessions();
+  }, [tab, roleFilter, verifiedFilter, sessionFilter]);
+
+  const handleSearch = (e) => { if (e.key === "Enter") { tab === "users" ? loadUsers() : loadSessions(); } };
+
+  const handleDelete = async (id) => {
+    try { await api.request("DELETE", `/admin/users/${id}`); showToast("Account deleted."); loadUsers(); loadStats(); }
+    catch(e) { showToast(e.message, "error"); }
+  };
+
+  const handleVerify = async (id) => {
+    try { await api.request("PATCH", `/admin/users/${id}/verify`); showToast("User verified ✓"); loadUsers(); loadStats(); }
+    catch(e) { showToast(e.message, "error"); }
+  };
+
+  const handleUnverify = async (id) => {
+    try { await api.request("PATCH", `/admin/users/${id}/unverify`); showToast("Verification revoked."); loadUsers(); loadStats(); }
+    catch(e) { showToast(e.message, "error"); }
+  };
+
+  const handleStopSession = async (id) => {
+    try { await api.request("PATCH", `/admin/sessions/${id}/stop`); showToast("Session stopped."); loadSessions(); loadStats(); }
+    catch(e) { showToast(e.message, "error"); }
+  };
+
+  const handleDeleteSession = async (id) => {
+    try { await api.request("DELETE", `/admin/sessions/${id}`); showToast("Session deleted."); loadSessions(); loadStats(); }
+    catch(e) { showToast(e.message, "error"); }
+  };
+
+  return (
+    <div className="container" style={{ paddingTop:24, paddingBottom:40 }}>
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          position:"fixed", top:16, right:16, zIndex:9999,
+          padding:"10px 18px", borderRadius:"var(--radius-sm)", fontWeight:600, fontSize:"0.85rem",
+          background: toast.type === "error" ? "var(--red)" : "var(--green)", color:"#fff",
+          boxShadow:"0 4px 20px rgba(0,0,0,0.3)", animation:"fadeIn 0.2s",
+        }}>{toast.msg}</div>
+      )}
+
+      {/* Header */}
+      <div style={{ marginBottom:24 }}>
+        <h1 style={{ fontSize:"1.5rem", fontWeight:800, color:"var(--ink)", margin:0 }}>🛡 Admin Panel</h1>
+        <p style={{ color:"var(--muted)", margin:"4px 0 0", fontSize:"0.85rem" }}>Manage users, sessions, and system activity</p>
+      </div>
+
+      {/* Stat cards */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(180px, 1fr))", gap:12, marginBottom:28 }}>
+        <AdminStatCard icon="👥" label="Total Students" value={stats?.totalStudents} color="#3b82f6"
+          sub={`${stats?.verifiedStudents ?? "–"} verified · ${stats?.unverifiedStudents ?? "–"} pending`} />
+        <AdminStatCard icon="🧑‍🏫" label="Teachers" value={stats?.totalTeachers} color="#8b5cf6" />
+        <AdminStatCard icon="📋" label="Sessions" value={stats?.totalSessions} color="#f59e0b"
+          sub={stats?.activeSessions ? `${stats.activeSessions} live now` : "None active"} />
+        <AdminStatCard icon="✅" label="Attendance Records" value={stats?.totalAttendance} color="#10b981" />
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display:"flex", gap:4, borderBottom:"2px solid var(--border)", marginBottom:20 }}>
+        {[["users","👥 Users"], ["sessions","📋 Sessions"]].map(([key, label]) => (
+          <button key={key} onClick={() => { setTab(key); setSearch(""); }} style={{
+            padding:"8px 18px", fontWeight:700, fontSize:"0.85rem", border:"none", cursor:"pointer",
+            background:"none", borderBottom: tab === key ? "2px solid var(--accent)" : "2px solid transparent",
+            color: tab === key ? "var(--accent)" : "var(--muted)", marginBottom:"-2px", transition:"all 0.15s",
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {/* Search + filters */}
+      <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
+        <input className="form-input" style={{ flex:1, minWidth:200, padding:"8px 12px", fontSize:"0.85rem" }}
+          placeholder={tab === "users" ? "Search name, email, ID…" : "Search subject, teacher…"}
+          value={search} onChange={e => setSearch(e.target.value)} onKeyDown={handleSearch} />
+        <button className="btn btn-ghost btn-sm" onClick={() => tab === "users" ? loadUsers() : loadSessions()}>Search</button>
+
+        {tab === "users" && (<>
+          <select className="form-input" style={{ padding:"8px 10px", fontSize:"0.82rem", width:"auto" }}
+            value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
+            <option value="">All roles</option>
+            <option value="student">Students</option>
+            <option value="teacher">Teachers</option>
+          </select>
+          <select className="form-input" style={{ padding:"8px 10px", fontSize:"0.82rem", width:"auto" }}
+            value={verifiedFilter} onChange={e => setVerifiedFilter(e.target.value)}>
+            <option value="">All status</option>
+            <option value="true">Verified</option>
+            <option value="false">Unverified</option>
+          </select>
+        </>)}
+
+        {tab === "sessions" && (
+          <select className="form-input" style={{ padding:"8px 10px", fontSize:"0.82rem", width:"auto" }}
+            value={sessionFilter} onChange={e => setSessionFilter(e.target.value)}>
+            <option value="">All sessions</option>
+            <option value="true">Live only</option>
+            <option value="false">Ended only</option>
+          </select>
+        )}
+
+        <button className="btn btn-ghost btn-sm" onClick={() => tab === "users" ? loadUsers() : loadSessions()} title="Refresh">↻</button>
+      </div>
+
+      {/* Content */}
+      {loading ? (
+        <div style={{ display:"flex", justifyContent:"center", padding:"40px 0" }}><Spinner size={28} /></div>
+      ) : tab === "users" ? (
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {users.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"40px 0", color:"var(--muted)" }}>No users found.</div>
+          ) : users.map(u => (
+            <AdminUserRow key={u._id} user={u}
+              onDelete={handleDelete} onVerify={handleVerify}
+              onUnverify={handleUnverify} onView={setViewUser} />
+          ))}
+        </div>
+      ) : (
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {sessions.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"40px 0", color:"var(--muted)" }}>No sessions found.</div>
+          ) : sessions.map(s => (
+            <AdminSessionRow key={s._id} session={s}
+              onStop={handleStopSession} onDelete={handleDeleteSession} />
+          ))}
+        </div>
+      )}
+
+      {/* User detail modal */}
+      {viewUser && (
+        <AdminUserDetailModal user={viewUser} onClose={() => setViewUser(null)}
+          onDelete={(id) => { handleDelete(id); setViewUser(null); }}
+          onVerify={handleVerify} onUnverify={handleUnverify} />
+      )}
+    </div>
+  );
+}
+
 function App() {
   const { user } = useAuth();
   const [page, setPage] = useState("home");
@@ -4003,10 +4372,13 @@ function App() {
     <div className="app">
       <Nav onSettings={() => setPage("settings")} />
       <EmailVerificationBanner />
-      {page === "settings" && user.role === "teacher" ? (
+      {page === "settings" && user.role === "admin" ? null
+      : page === "settings" && user.role === "teacher" ? (
         <TeacherSettings onBack={() => setPage("home")} />
       ) : page === "settings" && user.role === "student" ? (
         <StudentSettings onBack={() => setPage("home")} />
+      ) : user.role === "admin" ? (
+        <AdminDashboard />
       ) : user.role === "teacher" ? (
         <TeacherDashboard />
       ) : (

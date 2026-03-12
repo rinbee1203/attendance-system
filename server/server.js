@@ -20,6 +20,7 @@ app.use("/api/auth", require("./routes/auth"));
 app.use("/api/sessions", require("./routes/sessions"));
 app.use("/api/attendance", require("./routes/attendance"));
 app.use("/api/security",   require("./routes/security"));
+app.use("/api/admin",      require("./routes/admin"));
 
 // Health check
 app.get("/api/health", (req, res) => res.json({ status: "OK", message: "Server is running" }));
