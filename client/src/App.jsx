@@ -4180,76 +4180,94 @@ function AdminUserDetailModal({ user, onClose, onDelete, onVerify, onUnverify, o
   if (!user) return null;
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box" style={{ maxWidth:480 }} onClick={e => e.stopPropagation()}>
+      <div className="modal-box" style={{ maxWidth:500, width:"92vw" }} onClick={e => e.stopPropagation()}>
+        {/* Header */}
         <div className="modal-header">
           <h2 className="modal-title">User Details</h2>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
-        <div className="modal-body" style={{ display:"flex", flexDirection:"column", gap:16 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:16 }}>
-            <AvatarCircle name={user.name} picture={user.profilePicture} size={56} radius={28} fontSize="1.2rem" />
-            <div>
-              <div style={{ fontWeight:800, fontSize:"1.1rem", color:"var(--ink)" }}>{user.name}</div>
-              <div style={{ fontSize:"0.8rem", color:"var(--muted)", marginTop:2 }}>{user.email}</div>
+
+        <div className="modal-body" style={{ display:"flex", flexDirection:"column", gap:16, padding:"20px 24px" }}>
+
+          {/* Avatar + name row */}
+          <div style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)" }}>
+            <AvatarCircle name={user.name} picture={user.profilePicture} size={52} radius={26} fontSize="1.1rem" />
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontWeight:800, fontSize:"1rem", color:"var(--ink)", wordBreak:"break-word" }}>{user.name}</div>
+              <div style={{ fontSize:"0.78rem", color:"var(--muted)", marginTop:2, wordBreak:"break-all" }}>{user.email}</div>
               <div style={{ display:"flex", gap:6, marginTop:6, flexWrap:"wrap" }}>
                 <AdminBadge color={user.role === "teacher" ? "blue" : "gray"}>{user.role}</AdminBadge>
-                {user.isVerified ? <AdminBadge color="green">✓ Verified</AdminBadge> : <AdminBadge color="amber">⚠ Unverified</AdminBadge>}
+                {user.isVerified
+                  ? <AdminBadge color="green">✓ Verified</AdminBadge>
+                  : <AdminBadge color="amber">⚠ Unverified</AdminBadge>}
               </div>
             </div>
           </div>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+
+          {/* Info grid */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
             {[
               ["Student ID", user.studentId],
-              ["Grade", user.grade],
-              ["Section", user.section],
-              ["Birthdate", user.birthdate ? new Date(user.birthdate).toLocaleDateString("en-PH") : null],
-              ["Phone", user.phoneNumber],
-              ["School", user.school],
+              ["Grade",      user.grade],
+              ["Section",    user.section],
+              ["Birthdate",  user.birthdate ? new Date(user.birthdate).toLocaleDateString("en-PH") : null],
+              ["Phone",      user.phoneNumber],
+              ["School",     user.school],
               ["Department", user.department],
-              ["Joined", new Date(user.createdAt).toLocaleDateString("en-PH",{month:"long",day:"numeric",year:"numeric"})],
+              ["Joined",     new Date(user.createdAt).toLocaleDateString("en-PH",{month:"short",day:"numeric",year:"numeric"})],
             ].filter(([,v]) => v).map(([label, val]) => (
-              <div key={label} style={{ background:"var(--surface2)", borderRadius:"var(--radius-sm)", padding:"10px 12px" }}>
-                <div style={{ fontSize:"0.7rem", color:"var(--muted)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.05em" }}>{label}</div>
-                <div style={{ fontSize:"0.85rem", color:"var(--ink)", marginTop:3, fontWeight:600 }}>{val}</div>
+              <div key={label} style={{ background:"var(--surface2)", borderRadius:"var(--radius-sm)", padding:"10px 12px", border:"1px solid var(--border)" }}>
+                <div style={{ fontSize:"0.68rem", color:"var(--muted)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:4 }}>{label}</div>
+                <div style={{ fontSize:"0.85rem", color:"var(--ink)", fontWeight:600, wordBreak:"break-word" }}>{val}</div>
               </div>
             ))}
           </div>
+
           {/* Password reset */}
-          <div style={{ borderTop:"1px solid var(--border)", paddingTop:14 }}>
+          <div style={{ background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)", padding:"14px 16px" }}>
             {!showPwForm ? (
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowPwForm(true)} style={{ fontSize:"0.82rem" }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowPwForm(true)} style={{ fontSize:"0.82rem", width:"100%" }}>
                 🔑 Change Password
               </button>
             ) : (
-              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                <div style={{ fontSize:"0.78rem", fontWeight:700, color:"var(--ink3)" }}>Set New Password for {user.name}</div>
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                <div style={{ fontSize:"0.78rem", fontWeight:700, color:"var(--ink3)" }}>Set new password for {user.name}</div>
+                <input className="form-input" type="password" style={{ fontSize:"0.85rem" }}
+                  placeholder="New password (min. 6 characters)" value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleResetPassword()} />
                 <div style={{ display:"flex", gap:8 }}>
-                  <input className="form-input" type="password" style={{ flex:1, padding:"7px 10px", fontSize:"0.83rem" }}
-                    placeholder="New password (min. 6 chars)" value={newPassword}
-                    onChange={e => setNewPassword(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && handleResetPassword()} />
-                  <button className="btn btn-primary btn-sm" onClick={handleResetPassword} disabled={pwLoading}>
-                    {pwLoading ? <Spinner size={14}/> : "Save"}
+                  <button className="btn btn-primary btn-sm" onClick={handleResetPassword} disabled={pwLoading} style={{ flex:1 }}>
+                    {pwLoading ? <Spinner size={14}/> : "Save Password"}
                   </button>
                   <button className="btn btn-ghost btn-sm" onClick={() => { setShowPwForm(false); setNewPassword(""); setPwMsg(null); }}>Cancel</button>
                 </div>
-                {pwMsg && <div style={{ fontSize:"0.78rem", color: pwMsg.type === "error" ? "var(--red)" : "var(--green)", fontWeight:600 }}>{pwMsg.text}</div>}
+                {pwMsg && (
+                  <div style={{ fontSize:"0.78rem", color: pwMsg.type === "error" ? "var(--red)" : "var(--green)", fontWeight:600 }}>
+                    {pwMsg.type === "error" ? "⚠ " : "✓ "}{pwMsg.text}
+                  </div>
+                )}
               </div>
             )}
           </div>
 
+          {/* Action buttons */}
           <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
             {!user.isVerified
-              ? <button className="btn btn-primary btn-sm" onClick={() => { onVerify(user._id); onClose(); }} style={{ background:"var(--green)", borderColor:"var(--green)" }}>✓ Verify Account</button>
-              : <button className="btn btn-ghost btn-sm" onClick={() => { onUnverify(user._id); onClose(); }} style={{ color:"var(--amber)" }}>✗ Revoke Verification</button>}
+              ? <button className="btn btn-primary btn-sm" onClick={() => { onVerify(user._id); onClose(); }}
+                  style={{ background:"var(--green)", borderColor:"var(--green)", flex:1 }}>✓ Verify Account</button>
+              : <button className="btn btn-ghost btn-sm" onClick={() => { onUnverify(user._id); onClose(); }}
+                  style={{ color:"var(--amber)", flex:1 }}>✗ Revoke Verification</button>}
             {!confirming
-              ? <button className="btn btn-ghost btn-sm" onClick={() => setConfirming(true)} style={{ color:"var(--red)" }}>🗑 Delete Account</button>
-              : <div style={{ display:"flex", gap:6 }}>
-                  <span style={{ fontSize:"0.8rem", color:"var(--red)", alignSelf:"center" }}>Are you sure?</span>
-                  <button className="btn btn-sm" onClick={() => { onDelete(user._id); onClose(); }} style={{ background:"var(--red)", color:"#fff", border:"none" }}>Yes, delete</button>
+              ? <button className="btn btn-ghost btn-sm" onClick={() => setConfirming(true)}
+                  style={{ color:"var(--red)" }}>🗑 Delete</button>
+              : <>
+                  <button className="btn btn-sm" onClick={() => { onDelete(user._id); onClose(); }}
+                    style={{ background:"var(--red)", color:"#fff", border:"none" }}>Yes, delete</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => setConfirming(false)}>Cancel</button>
-                </div>}
+                </>}
           </div>
+
         </div>
       </div>
     </div>
@@ -4278,12 +4296,13 @@ function AdminDashboard() {
     try { const d = await api.get("/admin/stats"); setStats(d.stats); } catch(e) {}
   };
 
-  const loadUsers = async () => {
+  const loadUsers = async (forceRole = "") => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (search)        params.set("search",   search);
-      if (roleFilter)    params.set("role",      roleFilter);
+      const role = forceRole || roleFilter;
+      if (role)          params.set("role",      role);
       if (verifiedFilter !== "") params.set("verified", verifiedFilter);
       const d = await api.get(`/admin/users?${params}`);
       setUsers(d.users || []);
@@ -4305,11 +4324,18 @@ function AdminDashboard() {
 
   useEffect(() => { loadStats(); }, []);
   useEffect(() => {
-    if (tab === "users") loadUsers();
+    if (tab === "users")    loadUsers("student");
+    if (tab === "teachers") loadUsers("teacher");
     if (tab === "sessions") loadSessions();
   }, [tab, roleFilter, verifiedFilter, sessionFilter]);
 
-  const handleSearch = (e) => { if (e.key === "Enter") { tab === "users" ? loadUsers() : loadSessions(); } };
+  const handleSearch = (e) => {
+    if (e.key === "Enter") {
+      if (tab === "sessions") loadSessions();
+      else if (tab === "teachers") loadUsers("teacher");
+      else loadUsers("student");
+    }
+  };
 
   const handleDelete = async (id) => {
     try { await api.request("DELETE", `/admin/users/${id}`); showToast("Account deleted."); loadUsers(); loadStats(); }
@@ -4371,7 +4397,7 @@ function AdminDashboard() {
 
       {/* Tabs */}
       <div style={{ display:"flex", gap:4, borderBottom:"2px solid var(--border)", marginBottom:20 }}>
-        {[["users","👥 Users"], ["sessions","📋 Sessions"]].map(([key, label]) => (
+        {[["users","👥 Students"], ["teachers","🧑‍🏫 Teachers"], ["sessions","📋 Sessions"]].map(([key, label]) => (
           <button key={key} onClick={() => { setTab(key); setSearch(""); }} style={{
             padding:"8px 18px", fontWeight:700, fontSize:"0.85rem", border:"none", cursor:"pointer",
             background:"none", borderBottom: tab === key ? "2px solid var(--accent)" : "2px solid transparent",
@@ -4383,24 +4409,18 @@ function AdminDashboard() {
       {/* Search + filters */}
       <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
         <input className="form-input" style={{ flex:1, minWidth:200, padding:"8px 12px", fontSize:"0.85rem" }}
-          placeholder={tab === "users" ? "Search name, email, ID…" : "Search subject, teacher…"}
+          placeholder={tab === "sessions" ? "Search subject, teacher…" : tab === "teachers" ? "Search name, email…" : "Search name, email, student ID…"}
           value={search} onChange={e => setSearch(e.target.value)} onKeyDown={handleSearch} />
-        <button className="btn btn-ghost btn-sm" onClick={() => tab === "users" ? loadUsers() : loadSessions()}>Search</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => tab === "sessions" ? loadSessions() : tab === "teachers" ? loadUsers("teacher") : loadUsers("student")}>Search</button>
 
-        {tab === "users" && (<>
-          <select className="form-input" style={{ padding:"8px 10px", fontSize:"0.82rem", width:"auto" }}
-            value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
-            <option value="">All roles</option>
-            <option value="student">Students</option>
-            <option value="teacher">Teachers</option>
-          </select>
+        {(tab === "users" || tab === "teachers") && (
           <select className="form-input" style={{ padding:"8px 10px", fontSize:"0.82rem", width:"auto" }}
             value={verifiedFilter} onChange={e => setVerifiedFilter(e.target.value)}>
             <option value="">All status</option>
             <option value="true">Verified</option>
             <option value="false">Unverified</option>
           </select>
-        </>)}
+        )}
 
         {tab === "sessions" && (
           <select className="form-input" style={{ padding:"8px 10px", fontSize:"0.82rem", width:"auto" }}
@@ -4411,16 +4431,18 @@ function AdminDashboard() {
           </select>
         )}
 
-        <button className="btn btn-ghost btn-sm" onClick={() => tab === "users" ? loadUsers() : loadSessions()} title="Refresh">↻</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => tab === "sessions" ? loadSessions() : tab === "teachers" ? loadUsers("teacher") : loadUsers("student")} title="Refresh">↻</button>
       </div>
 
       {/* Content */}
       {loading ? (
         <div style={{ display:"flex", justifyContent:"center", padding:"40px 0" }}><Spinner size={28} /></div>
-      ) : tab === "users" ? (
+      ) : (tab === "users" || tab === "teachers") ? (
         <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
           {users.length === 0 ? (
-            <div style={{ textAlign:"center", padding:"40px 0", color:"var(--muted)" }}>No users found.</div>
+            <div style={{ textAlign:"center", padding:"40px 0", color:"var(--muted)" }}>
+              No {tab === "teachers" ? "teachers" : "students"} found.
+            </div>
           ) : users.map(u => (
             <AdminUserRow key={u._id} user={u}
               onDelete={handleDelete} onVerify={handleVerify}
