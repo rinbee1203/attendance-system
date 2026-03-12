@@ -212,4 +212,23 @@ const deleteSession = async (req, res) => {
   }
 };
 
-module.exports = { setupAdmin, getStats, getUsers, getUser, deleteUser, verifyUser, unverifyUser, getSessions, stopSession, deleteSession };
+
+// ── @desc  Reset a user's password ──────────────────────────────────────────
+// ── @route PATCH /api/admin/users/:id/password
+const resetUserPassword = async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 6)
+      return res.status(400).json({ success: false, message: "Password must be at least 6 characters." });
+    const user = await User.findById(req.params.id).select("+password");
+    if (!user) return res.status(404).json({ success: false, message: "User not found." });
+    if (user.role === "admin") return res.status(403).json({ success: false, message: "Cannot change admin password this way." });
+    user.password = newPassword; // pre-save hook will hash it
+    await user.save();
+    res.json({ success: true, message: "Password updated successfully." });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to update password." });
+  }
+};
+
+module.exports = { setupAdmin, resetUserPassword, getStats, getUsers, getUser, deleteUser, verifyUser, unverifyUser, getSessions, stopSession, deleteSession };

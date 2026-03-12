@@ -4093,9 +4093,26 @@ function AdminSessionRow({ session, onStop, onDelete }) {
   );
 }
 
-function AdminUserDetailModal({ user, onClose, onDelete, onVerify, onUnverify }) {
+function AdminUserDetailModal({ user, onClose, onDelete, onVerify, onUnverify, onResetPassword }) {
   useEscKey(onClose);
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirming]   = useState(false);
+  const [showPwForm, setShowPwForm]   = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [pwLoading, setPwLoading]     = useState(false);
+  const [pwMsg, setPwMsg]             = useState(null);
+
+  const handleResetPassword = async () => {
+    if (!newPassword || newPassword.length < 6) { setPwMsg({ type:"error", text:"Min. 6 characters." }); return; }
+    setPwLoading(true); setPwMsg(null);
+    try {
+      await onResetPassword(user._id, newPassword);
+      setPwMsg({ type:"success", text:"Password updated successfully." });
+      setNewPassword("");
+      setShowPwForm(false);
+    } catch(e) { setPwMsg({ type:"error", text: e.message }); }
+    finally { setPwLoading(false); }
+  };
+
   if (!user) return null;
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -4133,6 +4150,30 @@ function AdminUserDetailModal({ user, onClose, onDelete, onVerify, onUnverify })
               </div>
             ))}
           </div>
+          {/* Password reset */}
+          <div style={{ borderTop:"1px solid var(--border)", paddingTop:14 }}>
+            {!showPwForm ? (
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowPwForm(true)} style={{ fontSize:"0.82rem" }}>
+                🔑 Change Password
+              </button>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                <div style={{ fontSize:"0.78rem", fontWeight:700, color:"var(--ink3)" }}>Set New Password for {user.name}</div>
+                <div style={{ display:"flex", gap:8 }}>
+                  <input className="form-input" type="password" style={{ flex:1, padding:"7px 10px", fontSize:"0.83rem" }}
+                    placeholder="New password (min. 6 chars)" value={newPassword}
+                    onChange={e => setNewPassword(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && handleResetPassword()} />
+                  <button className="btn btn-primary btn-sm" onClick={handleResetPassword} disabled={pwLoading}>
+                    {pwLoading ? <Spinner size={14}/> : "Save"}
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setShowPwForm(false); setNewPassword(""); setPwMsg(null); }}>Cancel</button>
+                </div>
+                {pwMsg && <div style={{ fontSize:"0.78rem", color: pwMsg.type === "error" ? "var(--red)" : "var(--green)", fontWeight:600 }}>{pwMsg.text}</div>}
+              </div>
+            )}
+          </div>
+
           <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
             {!user.isVerified
               ? <button className="btn btn-primary btn-sm" onClick={() => { onVerify(user._id); onClose(); }} style={{ background:"var(--green)", borderColor:"var(--green)" }}>✓ Verify Account</button>
@@ -4229,6 +4270,11 @@ function AdminDashboard() {
   const handleDeleteSession = async (id) => {
     try { await api.request("DELETE", `/admin/sessions/${id}`); showToast("Session deleted."); loadSessions(); loadStats(); }
     catch(e) { showToast(e.message, "error"); }
+  };
+
+  const handleResetPassword = async (id, newPassword) => {
+    await api.request("PATCH", `/admin/users/${id}/password`, { newPassword });
+    showToast("Password updated ✓");
   };
 
   return (
@@ -4332,7 +4378,8 @@ function AdminDashboard() {
       {viewUser && (
         <AdminUserDetailModal user={viewUser} onClose={() => setViewUser(null)}
           onDelete={(id) => { handleDelete(id); setViewUser(null); }}
-          onVerify={handleVerify} onUnverify={handleUnverify} />
+          onVerify={handleVerify} onUnverify={handleUnverify}
+          onResetPassword={handleResetPassword} />
       )}
     </div>
   );
