@@ -1456,20 +1456,39 @@ function EmailVerificationBanner() {
 
 // ─── LOGIN HISTORY SECTION ─────────────────────────────────────────────────────
 function LoginHistorySection() {
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(false);
+  const [history, setHistory]   = useState([]);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState("");
+  const [open, setOpen]         = useState(false);
+  const [lastRefresh, setLastRefresh] = useState(null);
 
-  const load = async () => {
-    setOpen(true); setLoading(true);
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true);
+    setError("");
     try {
       const data = await api.get("/security/login-history");
       setHistory(data.history || []);
-    } catch(e) { /* silent */ }
-    finally { setLoading(false); }
+      setLastRefresh(new Date());
+    } catch(e) {
+      setError(e.message || "Failed to load login history.");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Browser → icon mapping
+  // Auto-load when opened
+  const handleToggle = () => {
+    if (!open) { setOpen(true); load(); }
+    else setOpen(false);
+  };
+
+  // Auto-refresh every 30s while open
+  useEffect(() => {
+    if (!open) return;
+    const id = setInterval(() => load(true), 30000);
+    return () => clearInterval(id);
+  }, [open]);
+
   const getBrowserIcon = (browser = "") => {
     const b = browser.toLowerCase();
     if (b.includes("chrome"))   return "🟢";
@@ -1489,22 +1508,24 @@ function LoginHistorySection() {
     return "💻";
   };
 
-  const formatDate = (dt) => {
-    const d = new Date(dt);
-    const now = new Date();
-    const diffMs = now - d;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    if (diffMins < 1)    return "Just now";
-    if (diffMins < 60)   return `${diffMins}m ago`;
-    if (diffHours < 24)  return `${diffHours}h ago`;
-    if (diffDays < 7)    return `${diffDays}d ago`;
-    return d.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila" });
+  const formatRelative = (dt) => {
+    const diff = Date.now() - new Date(dt);
+    const m = Math.floor(diff / 60000);
+    const h = Math.floor(diff / 3600000);
+    const d = Math.floor(diff / 86400000);
+    if (m < 1)   return "Just now";
+    if (m < 60)  return `${m}m ago`;
+    if (h < 24)  return `${h}h ago`;
+    if (d < 7)   return `${d}d ago`;
+    return new Date(dt).toLocaleDateString("en-PH", { month:"short", day:"numeric", year:"numeric", timeZone:"Asia/Manila" });
   };
 
   const formatTime = (dt) => new Date(dt).toLocaleTimeString("en-PH", {
-    hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Manila"
+    hour:"2-digit", minute:"2-digit", second:"2-digit", timeZone:"Asia/Manila",
+  });
+
+  const formatFullDate = (dt) => new Date(dt).toLocaleDateString("en-PH", {
+    weekday:"short", month:"short", day:"numeric", year:"numeric", timeZone:"Asia/Manila",
   });
 
   return (
@@ -1514,27 +1535,46 @@ function LoginHistorySection() {
           <div className="settings-card-title">Login Activity</div>
           <div className="settings-card-sub" style={{ marginBottom:0 }}>Recent sign-in history for your account</div>
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={() => { if (!open) load(); else setOpen(false); }}>
-          {open ? "Hide" : "View History"}
-        </button>
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          {open && (
+            <button className="btn btn-ghost btn-sm" onClick={() => load()} disabled={loading} title="Refresh">
+              <span style={{ display:"inline-block", animation: loading ? "spin 1s linear infinite" : "none" }}>↻</span>
+            </button>
+          )}
+          <button className="btn btn-ghost btn-sm" onClick={handleToggle}>
+            {open ? "Hide" : "View History"}
+          </button>
+        </div>
       </div>
 
       {open && (
         <div style={{ marginTop:18 }}>
+          {/* Error state */}
+          {error && (
+            <div style={{ padding:"12px 14px", background:"var(--red-lt)", border:"1px solid var(--red)", borderRadius:"var(--radius-sm)", color:"var(--red)", fontSize:"0.83rem", marginBottom:12, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <span>⚠ {error}</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => load()} style={{ color:"var(--red)" }}>Retry</button>
+            </div>
+          )}
+
+          {/* Loading state */}
           {loading ? (
-            <div style={{ display:"flex", justifyContent:"center", padding:"24px 0" }}><Spinner size={22} /></div>
-          ) : history.length === 0 ? (
-            <p style={{ color:"var(--muted)", fontSize:"0.84rem", textAlign:"center", padding:"16px 0" }}>No login history found.</p>
+            <div style={{ display:"flex", justifyContent:"center", padding:"28px 0" }}><Spinner size={22} /></div>
+          ) : history.length === 0 && !error ? (
+            <div style={{ textAlign:"center", padding:"24px 0", color:"var(--muted)" }}>
+              <div style={{ fontSize:"2rem", marginBottom:8 }}>🔐</div>
+              <div style={{ fontSize:"0.85rem", fontWeight:600, color:"var(--ink3)", marginBottom:4 }}>No login history yet</div>
+              <div style={{ fontSize:"0.78rem" }}>Your next login will appear here automatically.</div>
+            </div>
           ) : (
             <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
               {history.map((h, i) => (
                 <div key={i} style={{
                   borderRadius:"var(--radius-sm)",
-                  border: `1px solid ${h.success ? "var(--border)" : "#f5c6c2"}`,
+                  border:`1px solid ${h.success ? "var(--border)" : "#f5c6c2"}`,
                   background: h.success ? "var(--surface2)" : "var(--red-lt)",
                   overflow:"hidden",
                 }}>
-                  {/* Main row */}
                   <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px" }}>
                     {/* Status dot */}
                     <div style={{
@@ -1543,55 +1583,65 @@ function LoginHistorySection() {
                       boxShadow: h.success ? "0 0 0 3px var(--green-lt)" : "0 0 0 3px var(--red-lt)",
                     }}/>
 
-                    {/* Browser + device */}
-                    <div style={{ fontSize:"1.1rem", flexShrink:0 }}>
+                    {/* Icons */}
+                    <div style={{ fontSize:"1rem", flexShrink:0, lineHeight:1 }}>
                       {getBrowserIcon(h.browser)}{getDeviceIcon(h.device)}
                     </div>
 
-                    {/* Details */}
+                    {/* Info */}
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
-                        <span style={{ fontWeight:700, fontSize:"0.88rem", color: h.success ? "var(--ink)" : "var(--red)" }}>
+                        <span style={{ fontWeight:700, fontSize:"0.87rem", color: h.success ? "var(--ink)" : "var(--red)" }}>
                           {h.success ? "Signed in" : "Failed attempt"}
                         </span>
                         {h.browser && h.browser !== "Unknown" && (
-                          <span style={{ fontSize:"0.75rem", background:"var(--surface3)", border:"1px solid var(--border)", borderRadius:20, padding:"1px 8px", color:"var(--ink3)", fontWeight:600 }}>
+                          <span style={{ fontSize:"0.72rem", background:"var(--surface3)", border:"1px solid var(--border)", borderRadius:20, padding:"1px 8px", color:"var(--ink3)", fontWeight:600 }}>
                             {h.browser}{h.browserVersion ? ` ${h.browserVersion}` : ""}
                           </span>
                         )}
                       </div>
-                      <div style={{ fontSize:"0.76rem", color:"var(--muted)", marginTop:3, display:"flex", gap:10, flexWrap:"wrap" }}>
-                        {h.os && h.os !== "Unknown" && <span>🖥 {h.os}</span>}
+                      <div style={{ fontSize:"0.75rem", color:"var(--muted)", marginTop:3, display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+                        {h.os && h.os !== "Unknown" && (
+                          <span>🖥 {h.os}</span>
+                        )}
                         {h.ip && h.ip !== "Unknown" && (
-                          <span style={{ fontFamily:"var(--font-mono)", fontSize:"0.72rem" }}>
-                            🌐 {h.ip}
+                          <span style={{ fontFamily:"var(--font-mono)", fontSize:"0.71rem", background:"var(--surface3)", padding:"1px 6px", borderRadius:4 }}>
+                            {h.ip}
                           </span>
                         )}
                       </div>
                     </div>
 
-                    {/* Time */}
+                    {/* Timestamp */}
                     <div style={{ textAlign:"right", flexShrink:0 }}>
-                      <div style={{ fontSize:"0.78rem", fontWeight:600, color:"var(--ink3)" }}>{formatDate(h.at)}</div>
-                      <div style={{ fontSize:"0.7rem", color:"var(--muted)", fontFamily:"var(--font-mono)", marginTop:2 }}>{formatTime(h.at)}</div>
+                      <div style={{ fontSize:"0.78rem", fontWeight:600, color:"var(--ink3)" }}>{formatRelative(h.at)}</div>
+                      <div style={{ fontSize:"0.68rem", color:"var(--muted)", marginTop:2 }}>{formatFullDate(h.at)}</div>
+                      <div style={{ fontSize:"0.68rem", color:"var(--muted)", fontFamily:"var(--font-mono)" }}>{formatTime(h.at)}</div>
                     </div>
                   </div>
                 </div>
               ))}
 
-              {/* Legend */}
-              <div style={{ display:"flex", gap:16, padding:"8px 4px", borderTop:"1px solid var(--border)", marginTop:4 }}>
-                <span style={{ fontSize:"0.72rem", color:"var(--muted)", display:"flex", alignItems:"center", gap:5 }}>
-                  <span style={{ width:7, height:7, borderRadius:"50%", background:"var(--green)", display:"inline-block" }}/>
-                  Successful login
-                </span>
-                <span style={{ fontSize:"0.72rem", color:"var(--muted)", display:"flex", alignItems:"center", gap:5 }}>
-                  <span style={{ width:7, height:7, borderRadius:"50%", background:"var(--red)", display:"inline-block" }}/>
-                  Failed attempt
-                </span>
-                <span style={{ fontSize:"0.72rem", color:"var(--muted)", marginLeft:"auto" }}>
-                  Last {history.length} events
-                </span>
+              {/* Footer */}
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"8px 4px", borderTop:"1px solid var(--border)", marginTop:4 }}>
+                <div style={{ display:"flex", gap:14 }}>
+                  <span style={{ fontSize:"0.72rem", color:"var(--muted)", display:"flex", alignItems:"center", gap:5 }}>
+                    <span style={{ width:7, height:7, borderRadius:"50%", background:"var(--green)", display:"inline-block" }}/>
+                    Signed in
+                  </span>
+                  <span style={{ fontSize:"0.72rem", color:"var(--muted)", display:"flex", alignItems:"center", gap:5 }}>
+                    <span style={{ width:7, height:7, borderRadius:"50%", background:"var(--red)", display:"inline-block" }}/>
+                    Failed
+                  </span>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:2 }}>
+                  <span style={{ fontSize:"0.72rem", color:"var(--muted)" }}>{history.length} event{history.length !== 1 ? "s" : ""}</span>
+                  {lastRefresh && (
+                    <span style={{ fontSize:"0.68rem", color:"var(--muted)" }}>
+                      Updated {formatRelative(lastRefresh)}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           )}
