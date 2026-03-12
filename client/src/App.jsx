@@ -858,11 +858,40 @@ const styles = `
 
   /* ── Modal ── */
   .modal-overlay {
-    position: fixed; inset: 0; background: rgba(26,26,23,0.45);
+    position: fixed; inset: 0; background: rgba(0,0,0,0.65);
     display: flex; align-items: center; justify-content: center;
-    z-index: 500; padding: 20px; backdrop-filter: blur(3px);
+    z-index: 500; padding: 20px; backdrop-filter: blur(4px);
     animation: fadeIn 0.15s ease;
   }
+  .modal-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    animation: fadeIn 0.15s ease;
+  }
+  .modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 24px 0;
+    position: sticky; top: 0;
+    background: var(--surface);
+    z-index: 1;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 14px;
+  }
+  .modal-title { font-size: 1rem; font-weight: 800; color: var(--ink); margin: 0; }
+  .modal-close {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; width: 30px; height: 30px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 0.8rem; color: var(--ink3);
+    flex-shrink: 0;
+  }
+  .modal-close:hover { background: var(--red-lt); color: var(--red); border-color: var(--red); }
+  .modal-body { padding: 20px 24px 24px; }
   .modal {
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 18px; padding: 28px; width: 100%; max-width: 500px;
