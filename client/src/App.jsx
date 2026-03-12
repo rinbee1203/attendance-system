@@ -625,6 +625,7 @@ const styles = `
     padding: 5px 10px 5px 5px; border-radius: 40px;
     cursor: pointer; transition: all 0.15s;
     font-family: var(--font-body); box-shadow: var(--shadow-xs);
+    max-width: 200px; min-width: 0; overflow: hidden;
   }
   .profile-pill-btn:hover { border-color: var(--border2); box-shadow: var(--shadow-sm); }
   .user-avatar {
@@ -633,7 +634,7 @@ const styles = `
     display: flex; align-items: center; justify-content: center;
     font-size: 0.7rem; font-weight: 700; flex-shrink: 0; overflow: hidden;
   }
-  .user-name { font-size: 0.82rem; font-weight: 600; color: var(--ink); line-height: 1.2; }
+  .user-name { font-size: 0.82rem; font-weight: 600; color: var(--ink); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
   .user-role { font-size: 0.7rem; color: var(--muted); text-transform: capitalize; line-height: 1; }
   .user-avatar-img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
   .profile-popup {
@@ -1311,7 +1312,7 @@ function Nav({ onSettings }) {
             <div className="profile-popup-wrap" ref={wrapRef}>
               <button className="profile-pill-btn" onClick={() => setOpen(o => !o)}>
                 <AvatarCircle name={user.name} picture={user.profilePicture} size={30} />
-                <div style={{ textAlign: "left" }}>
+                <div style={{ textAlign:"left", minWidth:0, overflow:"hidden", flex:1 }}>
                   <div className="user-name">{user.name}</div>
                   <div className="user-role">{user.role}</div>
                 </div>
