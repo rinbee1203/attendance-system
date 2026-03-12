@@ -1343,12 +1343,10 @@ function Nav({ onSettings }) {
 
                   {/* Actions */}
                   <div className="profile-popup-actions">
-                    {user.role !== "admin" && (
-                      <button className="profile-popup-btn" onClick={() => { setOpen(false); onSettings(); }}>
-                        <span>{user.role === "teacher" ? "⚙" : "✏️"}</span>
-                        {user.role === "teacher" ? "Settings" : "Edit Profile"}
-                      </button>
-                    )}
+                    <button className="profile-popup-btn" onClick={() => { setOpen(false); onSettings(); }}>
+                      <span>⚙</span>
+                      {user.role === "admin" ? "Settings" : user.role === "teacher" ? "Settings" : "Edit Profile"}
+                    </button>
                     <button className="profile-popup-btn danger" onClick={() => { setOpen(false); logout(); }}>
                       <span>→</span> Sign out
                     </button>
@@ -3972,6 +3970,72 @@ function StudentSettings({ onBack }) {
 }
 
 
+// ─── ADMIN SETTINGS ──────────────────────────────────────────────────────────
+function AdminSettings({ onBack }) {
+  const { user } = useAuth();
+  const [form, setForm]     = useState({ currentPassword:"", newPassword:"", confirmPassword:"" });
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg]       = useState(null);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setMsg(null);
+    if (form.newPassword !== form.confirmPassword)
+      return setMsg({ type:"error", text:"Passwords do not match." });
+    if (form.newPassword.length < 6)
+      return setMsg({ type:"error", text:"Password must be at least 6 characters." });
+    setLoading(true);
+    try {
+      await api.request("PATCH", "/auth/change-password", {
+        currentPassword: form.currentPassword,
+        newPassword: form.newPassword,
+      });
+      setMsg({ type:"success", text:"Password updated successfully." });
+      setForm({ currentPassword:"", newPassword:"", confirmPassword:"" });
+    } catch(e) {
+      setMsg({ type:"error", text: e.message });
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="container" style={{ paddingTop:24, maxWidth:540 }}>
+      <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ marginBottom:20 }}>← Back to Dashboard</button>
+      <div className="settings-card">
+        <div className="settings-card-title">🔑 Change Password</div>
+        <div className="settings-card-sub">Update your admin account password</div>
+        {msg && <Alert type={msg.type} message={msg.text} />}
+        <form onSubmit={handleSubmit} style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          <div className="form-group">
+            <label className="form-label">Current Password</label>
+            <input className="form-input" type="password" required
+              placeholder="Enter current password"
+              value={form.currentPassword}
+              onChange={e => setForm(f => ({ ...f, currentPassword: e.target.value }))} />
+          </div>
+          <div className="divider-label"><span>New Password</span></div>
+          <div className="form-group">
+            <label className="form-label">New Password</label>
+            <input className="form-input" type="password" required
+              placeholder="Min. 6 characters"
+              value={form.newPassword}
+              onChange={e => setForm(f => ({ ...f, newPassword: e.target.value }))} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Confirm New Password</label>
+            <input className="form-input" type="password" required
+              placeholder="Repeat new password"
+              value={form.confirmPassword}
+              onChange={e => setForm(f => ({ ...f, confirmPassword: e.target.value }))} />
+          </div>
+          <button type="submit" className="btn btn-primary" disabled={loading}>
+            {loading ? <Spinner /> : "Change Password"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── ADMIN DASHBOARD ─────────────────────────────────────────────────────────
 
 function AdminStatCard({ icon, label, value, sub, color }) {
@@ -4419,7 +4483,9 @@ function App() {
     <div className="app">
       <Nav onSettings={() => setPage("settings")} />
       <EmailVerificationBanner />
-      {page === "settings" && user.role === "admin" ? null
+      {page === "settings" && user.role === "admin" ? (
+        <AdminSettings onBack={() => setPage("home")} />
+      )
       : page === "settings" && user.role === "teacher" ? (
         <TeacherSettings onBack={() => setPage("home")} />
       ) : page === "settings" && user.role === "student" ? (
