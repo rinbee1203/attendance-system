@@ -3782,9 +3782,9 @@ function TeacherSettings({ onBack }) {
             </form>
           </div>
 
+          <LoginHistorySection />
         </div>
       </div>
-    <LoginHistorySection />
     </div>
   );
 }
@@ -3962,7 +3962,7 @@ function StudentSettings({ onBack }) {
               </button>
             </form>
           </div>
-        <LoginHistorySection />
+          <LoginHistorySection />
         </div>
       </div>
     </div>
