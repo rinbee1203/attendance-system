@@ -1039,20 +1039,70 @@ const styles = `
 
   /* ── Responsive ── */
   @media (max-width: 640px) {
-    .stats-grid { grid-template-columns: repeat(2, 1fr); }
-    .auth-card { padding: 28px 20px; }
-    .modal { padding: 22px 18px; }
-    .settings-card { padding: 20px 16px; }
+    /* Layout */
+    .container { padding: 0 16px; }
+    .main { padding: 20px 0 48px; }
+
+    /* Nav */
+    .nav-inner { height: 52px; }
+    .nav-brand { font-size: 1rem; gap: 7px; }
+    .profile-pill-btn { max-width: 160px; padding: 4px 8px 4px 4px; gap: 6px; }
+    .user-name { font-size: 0.78rem; max-width: 100px; }
+    .user-role { font-size: 0.65rem; }
+
+    /* Verification banner */
+    .email-verify-banner { padding: 10px 16px; font-size: 0.82rem; gap: 8px; }
+
+    /* Stats grid — 2 cols on mobile */
+    .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+    .stat-card { padding: 14px 14px; }
+    .stat-value { font-size: 1.6rem; }
+    .stat-label { font-size: 0.65rem; }
+
+    /* Page titles */
+    .page-title { font-size: 1.4rem; margin-bottom: 4px; }
+
+    /* Session cards */
+    .session-card { padding: 14px 14px; gap: 10px; }
+    .session-meta { flex-wrap: wrap; gap: 6px; }
+    .session-meta-chip { font-size: 0.71rem; padding: 3px 8px; }
+
+    /* Settings */
+    .settings-card { padding: 18px 16px; }
+    .settings-card-title { font-size: 1rem; }
+
+    /* Auth */
+    .auth-card { padding: 24px 18px; }
+
+    /* Modals */
+    .modal { padding: 20px 16px; }
+    .modal-box { width: 96vw !important; max-width: 96vw !important; }
+    .modal-header { padding: 14px 16px 12px; }
+    .modal-body { padding: 16px 16px 20px; }
+
+    /* Filters / buttons row */
+    .history-filters { flex-wrap: wrap; gap: 6px; }
     .export-bar { width: 100%; flex-wrap: wrap; }
-    .history-filters { flex-wrap: wrap; }
-    .page-title { font-size: 1.5rem; }
+
+    /* Profile */
     .profile-info-row { flex-direction: column; align-items: flex-start; }
     .student-info-grid { grid-template-columns: 1fr; }
+
+    /* Attendance accordion */
+    .attendance-table th,
+    .attendance-table td { padding: 8px 10px; font-size: 0.78rem; }
+
+    /* QR modal */
+    .qr-container { padding: 16px; }
   }
+
   @media (max-width: 400px) {
-    .container { padding: 0 14px; }
-    .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
-    .session-card { flex-wrap: wrap; }
+    .container { padding: 0 12px; }
+    .stats-grid { gap: 8px; }
+    .stat-card { padding: 12px 12px; }
+    .stat-value { font-size: 1.4rem; }
+    .profile-pill-btn { max-width: 140px; }
+    .user-name { max-width: 80px; }
   }
 
 
