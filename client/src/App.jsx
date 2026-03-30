@@ -3401,17 +3401,32 @@ function QRScannerModal({ onClose, onScan }) {
 
   // Load jsQR from CDN dynamically then start camera
   const loadJsQRAndStart = async () => {
+    // jsQR is preloaded in index.html — should be available immediately
     if (window.jsQR) { startCamera(); return; }
-    // Check if script tag already added (e.g. previous failed load)
-    const existing = document.querySelector('script[src*="jsQR"]');
-    if (existing) existing.remove(); // remove stale/errored script
-    return new Promise((resolve) => {
-      const script = document.createElement("script");
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js";
-      script.onload  = () => { resolve(); startCamera(); };
-      script.onerror = () => { setError("Failed to load QR scanner library. Check your internet connection and try again."); resolve(); };
-      document.head.appendChild(script);
-    });
+
+    // Fallback: try loading dynamically if preload somehow failed
+    const SOURCES = [
+      "https://unpkg.com/jsqr@1.4.0/dist/jsQR.js",
+      "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js",
+    ];
+
+    for (const src of SOURCES) {
+      try {
+        await new Promise((resolve, reject) => {
+          // Remove any previous stale tag for this src
+          document.querySelectorAll(`script[src="${src}"]`).forEach(s => s.remove());
+          const script = document.createElement("script");
+          script.src = src;
+          script.onload  = () => resolve();
+          script.onerror = () => { script.remove(); reject(); };
+          document.head.appendChild(script);
+        });
+        if (window.jsQR) { startCamera(); return; }
+      } catch(e) { /* try next source */ }
+    }
+
+    setError("Could not load the QR scanner. Make sure you are online, then tap Try Again.");
   };
 
   useEffect(() => {
