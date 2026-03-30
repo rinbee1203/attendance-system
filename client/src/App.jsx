@@ -1115,6 +1115,12 @@ const styles = `
     .qr-container { padding: 16px; }
   }
 
+  @keyframes scanLine {
+    0%   { top: 20%; }
+    50%  { top: 78%; }
+    100% { top: 20%; }
+  }
+
   @media (max-width: 400px) {
     .container { padding: 0 12px; }
     .stats-grid { gap: 8px; }
@@ -3374,12 +3380,230 @@ function CheckInPage({ token }) {
 }
 
 // ─── STUDENT DASHBOARD ────────────────────────────────────────────────────────
+// ─── QR SCANNER (Built-in camera scanner for students) ───────────────────────
+function QRScannerModal({ onClose, onScan }) {
+  const videoRef   = useRef(null);
+  const canvasRef  = useRef(null);
+  const streamRef  = useRef(null);
+  const rafRef     = useRef(null);
+  const [error, setError]     = useState("");
+  const [cameras, setCameras] = useState([]);
+  const [cameraIdx, setCameraIdx] = useState(0);
+  const [scanning, setScanning]   = useState(false);
+  const [torch, setTorch]         = useState(false);
+  const [scanned, setScanned]     = useState(false);
+
+  // Load jsQR from CDN dynamically
+  useEffect(() => {
+    if (!window.jsQR) {
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js";
+      script.onload = () => startCamera();
+      script.onerror = () => setError("Failed to load QR scanner library.");
+      document.head.appendChild(script);
+    } else {
+      startCamera();
+    }
+    return () => stopCamera();
+  }, []);
+
+  // Restart when switching cameras
+  useEffect(() => {
+    if (cameras.length > 0) { stopCamera(); startCamera(); }
+  }, [cameraIdx]);
+
+  const stopCamera = () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+  };
+
+  const startCamera = async () => {
+    setError(""); setScanning(false);
+    try {
+      // Enumerate cameras
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(d => d.kind === "videoinput");
+      setCameras(videoDevices);
+
+      const constraints = {
+        video: {
+          deviceId: videoDevices[cameraIdx]?.deviceId
+            ? { exact: videoDevices[cameraIdx].deviceId }
+            : undefined,
+          facingMode: videoDevices.length === 1 ? "environment" : undefined,
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        }
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute("playsinline", true);
+        await videoRef.current.play();
+        setScanning(true);
+        scanFrame();
+      }
+    } catch (err) {
+      if (err.name === "NotAllowedError") {
+        setError("Camera permission denied. Please allow camera access in your browser settings.");
+      } else if (err.name === "NotFoundError") {
+        setError("No camera found on this device.");
+      } else {
+        setError("Could not start camera: " + err.message);
+      }
+    }
+  };
+
+  const scanFrame = () => {
+    const video  = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || video.readyState !== video.HAVE_ENOUGH_DATA) {
+      rafRef.current = requestAnimationFrame(scanFrame);
+      return;
+    }
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = window.jsQR && window.jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "dontInvert" });
+    if (code && code.data && !scanned) {
+      // Extract token from URL or use raw data
+      let token = code.data;
+      try {
+        const url = new URL(code.data);
+        const t = url.searchParams.get("token");
+        if (t) token = t;
+      } catch(e) {}
+      if (token) {
+        setScanned(true);
+        stopCamera();
+        onScan(token);
+        return;
+      }
+    }
+    rafRef.current = requestAnimationFrame(scanFrame);
+  };
+
+  const toggleTorch = async () => {
+    if (!streamRef.current) return;
+    const track = streamRef.current.getVideoTracks()[0];
+    if (!track) return;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: !torch }] });
+      setTorch(t => !t);
+    } catch(e) {}
+  };
+
+  const switchCamera = () => {
+    setCameraIdx(i => (i + 1) % Math.max(cameras.length, 1));
+  };
+
+  useEscKey(onClose);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" style={{ maxWidth: 420, width: "96vw" }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="modal-title">📷 Scan QR Code</h2>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div style={{ padding: "16px 16px 20px" }}>
+          {error ? (
+            <div style={{ textAlign:"center", padding:"28px 16px" }}>
+              <div style={{ fontSize:"2.5rem", marginBottom:12 }}>📵</div>
+              <div style={{ color:"var(--red)", fontWeight:600, fontSize:"0.9rem", marginBottom:16 }}>{error}</div>
+              <button className="btn btn-primary btn-sm" onClick={startCamera}>Try Again</button>
+            </div>
+          ) : (
+            <>
+              {/* Camera viewport */}
+              <div style={{ position:"relative", width:"100%", borderRadius:"var(--radius-sm)", overflow:"hidden", background:"#000", aspectRatio:"1/1" }}>
+                <video ref={videoRef} style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }} playsInline muted />
+                <canvas ref={canvasRef} style={{ display:"none" }} />
+
+                {/* Scanning overlay */}
+                {scanning && !scanned && (
+                  <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", pointerEvents:"none" }}>
+                    {/* Corner brackets */}
+                    {["topleft","topright","bottomleft","bottomright"].map(pos => (
+                      <div key={pos} style={{
+                        position:"absolute",
+                        width:48, height:48,
+                        top: pos.includes("top") ? "20%" : undefined,
+                        bottom: pos.includes("bottom") ? "20%" : undefined,
+                        left: pos.includes("left") ? "20%" : undefined,
+                        right: pos.includes("right") ? "20%" : undefined,
+                        borderTop: pos.includes("top") ? "3px solid var(--accent)" : "none",
+                        borderBottom: pos.includes("bottom") ? "3px solid var(--accent)" : "none",
+                        borderLeft: pos.includes("left") ? "3px solid var(--accent)" : "none",
+                        borderRight: pos.includes("right") ? "3px solid var(--accent)" : "none",
+                      }}/>
+                    ))}
+                    {/* Scan line animation */}
+                    <div style={{
+                      position:"absolute",
+                      left:"20%", right:"20%", height:2,
+                      background:"var(--accent)",
+                      boxShadow:"0 0 8px var(--accent)",
+                      animation:"scanLine 2s ease-in-out infinite",
+                    }}/>
+                  </div>
+                )}
+
+                {/* Scanned success overlay */}
+                {scanned && (
+                  <div style={{ position:"absolute", inset:0, background:"rgba(16,185,129,0.85)", display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column", gap:8 }}>
+                    <div style={{ fontSize:"3rem" }}>✓</div>
+                    <div style={{ color:"#fff", fontWeight:700, fontSize:"1rem" }}>QR Code Detected!</div>
+                  </div>
+                )}
+
+                {/* Loading */}
+                {!scanning && !error && !scanned && (
+                  <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column", gap:10, color:"#fff" }}>
+                    <Spinner size={28} />
+                    <div style={{ fontSize:"0.85rem" }}>Starting camera…</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Controls */}
+              <div style={{ display:"flex", justifyContent:"center", gap:10, marginTop:14 }}>
+                {cameras.length > 1 && (
+                  <button className="btn btn-ghost btn-sm" onClick={switchCamera} title="Switch camera">
+                    🔄 Flip
+                  </button>
+                )}
+                <button className="btn btn-ghost btn-sm" onClick={toggleTorch} title="Toggle flashlight"
+                  style={{ color: torch ? "var(--amber)" : undefined }}>
+                  {torch ? "🔦 Flash ON" : "🔦 Flash"}
+                </button>
+              </div>
+
+              <p style={{ textAlign:"center", fontSize:"0.78rem", color:"var(--muted)", marginTop:12 }}>
+                Point your camera at the QR code on the teacher's screen
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StudentDashboard() {
   const { user } = useAuth();
   const [attendance, setAttendance] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [showScanner, setShowScanner]  = useState(false);
+  const [scanResult, setScanResult]    = useState(null); // { token, status }
   // "subject" | "date" — top-level grouping mode
   const [groupMode, setGroupMode] = useState("subject");
   // accordion open state
@@ -3435,6 +3659,18 @@ function StudentDashboard() {
   // Flatten a subject→month→day tree into flat array
   const flattenSubj = (subjData) => Object.values(subjData).flatMap(mo => Object.values(mo).flat());
 
+  const handleScan = async (token) => {
+    setShowScanner(false);
+    setScanResult({ status: "loading", token });
+    try {
+      // Navigate to check-in page with token
+      window.history.pushState({}, "", `/?token=${token}`);
+      window.location.reload();
+    } catch(e) {
+      setScanResult({ status: "error", message: e.message });
+    }
+  };
+
   return (
     <div className="main">
       <div className="container">
@@ -3443,7 +3679,33 @@ function StudentDashboard() {
             <h1 className="page-title">My Attendance</h1>
             <p className="page-sub">Track your class attendance history</p>
           </div>
+          {/* Scan QR button */}
+          <button
+            className="btn btn-primary"
+            onClick={() => setShowScanner(true)}
+            style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}
+          >
+            <span style={{ fontSize:"1.1rem" }}>📷</span>
+            Scan QR Code
+          </button>
         </div>
+
+        {/* Scanner modal */}
+        {showScanner && (
+          <QRScannerModal
+            onClose={() => setShowScanner(false)}
+            onScan={handleScan}
+          />
+        )}
+
+        {/* Scan error */}
+        {scanResult?.status === "error" && (
+          <div style={{ padding:"12px 16px", background:"var(--red-lt)", border:"1px solid var(--red)", borderRadius:"var(--radius-sm)", marginBottom:16, display:"flex", alignItems:"center", gap:10 }}>
+            <span>⚠️</span>
+            <div style={{ flex:1, fontSize:"0.85rem", color:"var(--red)" }}>{scanResult.message}</div>
+            <button onClick={() => setScanResult(null)} style={{ background:"none", border:"none", cursor:"pointer", color:"var(--red)" }}>✕</button>
+          </div>
+        )}
 
         <div className="stats-grid">
           <div className="stat-card" style={{ "--stat-color": "var(--accent)" }}>
