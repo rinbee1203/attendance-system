@@ -4,7 +4,22 @@ import { useState, useEffect, useCallback, createContext, useContext, useRef } f
 const API_BASE = "https://attendance-system-api-wc0k.onrender.com/api";
 
 const api = {
-  async request(endpoint, options = {}) {
+  // Supports both:
+  //   api.request("/url", { method, body })          — original style
+  //   api.request("METHOD", "/url", bodyObj)         — shorthand style
+  async request(endpointOrMethod, optionsOrUrl = {}, bodyObj) {
+    let endpoint, options;
+    if (typeof optionsOrUrl === "string") {
+      // shorthand: api.request("PATCH", "/url", { body })
+      endpoint = optionsOrUrl;
+      options  = {
+        method: endpointOrMethod,
+        ...(bodyObj !== undefined ? { body: JSON.stringify(bodyObj) } : {}),
+      };
+    } else {
+      endpoint = endpointOrMethod;
+      options  = optionsOrUrl;
+    }
     const token = localStorage.getItem("token");
     const { headers: optHeaders, ...restOptions } = options;
     const config = {
