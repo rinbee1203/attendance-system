@@ -1120,6 +1120,9 @@ const styles = `
     50%  { top: 78%; }
     100% { top: 20%; }
   }
+  /* Promote animated elements to GPU layer to avoid main thread INP */
+  .btn { will-change: auto; }
+  .btn:active { transform: scale(0.97); }
 
   @media (max-width: 400px) {
     .container { padding: 0 12px; }
@@ -2851,9 +2854,11 @@ function ExportPicker({ attendance, session }) {
   const closeModal = () => { setMode(null); setChecked({}); };
 
   // Download one or multiple keys as styled XLSX files
-  const handleDownload = async () => {
+  const handleDownload = () => {
     if (selectedKeys.length === 0) return;
     setZipping(true);
+    // Defer heavy XLSX work so the UI can show the loading state first
+    setTimeout(async () => {
     try {
       // Download each selected key sequentially
       for (const key of selectedKeys) {
@@ -2872,11 +2877,12 @@ function ExportPicker({ attendance, session }) {
     } finally {
       setZipping(false);
     }
+    }, 0); // end setTimeout
   };
 
   return (
     <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
-      <button className="btn btn-excel btn-sm" onClick={() => exportSessionFull(attendance, session)}>⬇ Full XLSX</button>
+      <button className="btn btn-excel btn-sm" onClick={() => setTimeout(() => exportSessionFull(attendance, session), 0)}>⬇ Full XLSX</button>
       <button className="btn btn-excel btn-sm" onClick={() => openMode("month")}>⬇ Monthly</button>
       <button className="btn btn-excel btn-sm" onClick={() => openMode("day")}>⬇ Daily</button>
 
@@ -3780,7 +3786,7 @@ function StudentDashboard() {
                       {lCount>0 && <span className="badge badge-late" style={{flexShrink:0}}>⏰ {lCount}</span>}
                     </div>
                     <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
-                      <button className="btn btn-excel btn-sm" onClick={e => { e.stopPropagation(); exportStudentBySubject(subjRecords, subj, user?.name); }} title="Export this subject">⬇ CSV</button>
+                      <button className="btn btn-excel btn-sm" onClick={e => { e.stopPropagation(); setTimeout(() => exportStudentBySubject(subjRecords, subj, user?.name), 0); }} title="Export this subject">⬇ CSV</button>
                       <span className={`accordion-chevron ${isOpen?"open":""}`}>▼</span>
                     </div>
                   </div>
@@ -3803,7 +3809,7 @@ function StudentDashboard() {
                                 <span style={{ fontSize:"0.73rem", color:"var(--muted)" }}>{moRecords.length} records</span>
                               </div>
                               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                                <button className="btn btn-excel btn-sm" onClick={e => { e.stopPropagation(); exportStudentByMonth(moRecords, mo, user?.name); }} title="Export this month">⬇ CSV</button>
+                                <button className="btn btn-excel btn-sm" onClick={e => { e.stopPropagation(); setTimeout(() => exportStudentByMonth(moRecords, mo, user?.name), 0); }} title="Export this month">⬇ CSV</button>
                                 <span className={`accordion-chevron ${isMoOpen?"open":""}`}>▼</span>
                               </div>
                             </div>
@@ -3865,7 +3871,7 @@ function StudentDashboard() {
                       </span>
                     </div>
                     <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                      <button className="btn btn-excel btn-sm" onClick={e => { e.stopPropagation(); exportStudentByMonth(moRecords, mo, user?.name); }} title="Export this month">⬇ CSV</button>
+                      <button className="btn btn-excel btn-sm" onClick={e => { e.stopPropagation(); setTimeout(() => exportStudentByMonth(moRecords, mo, user?.name), 0); }} title="Export this month">⬇ CSV</button>
                       <span className={`accordion-chevron ${isMoOpen?"open":""}`}>▼</span>
                     </div>
                   </div>
@@ -5090,7 +5096,9 @@ function AdminDashboard() {
       <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
         <input className="form-input" style={{ flex:1, minWidth:200, padding:"8px 12px", fontSize:"0.85rem" }}
           placeholder={tab === "sessions" ? "Search subject, teacher…" : tab === "teachers" ? "Search name, email…" : "Search name, email, student ID…"}
-          value={search} onChange={e => setSearch(e.target.value)} onKeyDown={handleSearch} />
+          value={search}
+          onChange={e => { const v = e.target.value; setTimeout(() => setSearch(v), 0); }}
+          onKeyDown={handleSearch} />
         <button className="btn btn-ghost btn-sm" onClick={() => tab === "sessions" ? loadSessions() : tab === "teachers" ? loadUsers("teacher") : loadUsers("student")}>Search</button>
 
         {(tab === "users" || tab === "teachers") && (
