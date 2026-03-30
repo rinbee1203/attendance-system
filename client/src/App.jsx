@@ -141,9 +141,13 @@ function AuthProvider({ children }) {
     setLoading(true);
     try {
       const data = await api.post("/auth/login", { email, password });
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("user", JSON.stringify(data.user));
-      setUser(data.user);
+      // If 2FA is required, don't store anything yet — caller handles it
+      if (data.requires2FA) return data;
+      if (data.token) {
+        localStorage.setItem("token", data.token);
+        localStorage.setItem("user", JSON.stringify(data.user));
+        setUser(data.user);
+      }
       return data;
     } finally { setLoading(false); }
   };
