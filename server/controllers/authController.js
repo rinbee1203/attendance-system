@@ -1,5 +1,6 @@
-const jwt = require("jsonwebtoken");
+const jwt    = require("jsonwebtoken");
 const crypto = require("crypto");
+const { sendLoginAlert, generateOTP, hashOTP } = require("./securityController");
 
 // ── UA Parser — extract browser & OS from User-Agent string ─────────────────
 function parseUserAgent(ua) {
@@ -242,24 +243,76 @@ const login = async (req, res) => {
     user.lockUntil = undefined;
     user.loginHistory = user.loginHistory || [];
     user.loginHistory.push({
-      ip,
-      userAgent:      ua.slice(0, 200),
-      browser:        parsed.browser,
-      browserVersion: parsed.browserVersion,
-      os:             parsed.os,
-      device:         parsed.device,
-      success:        true,
+      ip, userAgent: ua.slice(0, 200),
+      browser: parsed.browser, browserVersion: parsed.browserVersion,
+      os: parsed.os, device: parsed.device, success: true,
     });
     if (user.loginHistory.length > 20) user.loginHistory = user.loginHistory.slice(-20);
-    await user.save({ validateBeforeSave: false });
 
+    // ── Suspicious login detection (new IP) ──
+    const isSuspicious = user.lastKnownIP && user.lastKnownIP !== ip && ip !== "Unknown";
+    if (isSuspicious) {
+      user.loginHistory[user.loginHistory.length - 1].suspicious = true;
+    }
+
+    // ── Login alert email ──
+    sendLoginAlert(user, ip, `${parsed.browser} ${parsed.browserVersion}`, `${parsed.os} · ${parsed.device}`);
+
+    // ── Session tracking (max 5 concurrent sessions) ──
+    user.activeSessions = user.activeSessions || [];
+    const sessionId = crypto.randomBytes(20).toString("hex");
+    user.activeSessions.push({
+      sessionId, ip,
+      browser: `${parsed.browser} ${parsed.browserVersion}`,
+      os: parsed.os, device: parsed.device,
+      createdAt: new Date(), lastSeenAt: new Date(),
+    });
+    // Keep only last 5 sessions
+    if (user.activeSessions.length > 5) user.activeSessions = user.activeSessions.slice(-5);
+
+    // Update last known IP
+    user.lastKnownIP = ip;
+
+    // ── If 2FA enabled — issue temp token instead of full token ──
+    if (user.twoFAEnabled) {
+      const otp = generateOTP();
+      user.twoFASecret  = hashOTP(otp);
+      user.twoFAExpires = new Date(Date.now() + 10 * 60 * 1000);
+      user.twoFAPending = true;
+      await user.save({ validateBeforeSave: false });
+      // Send OTP email
+      const https  = require("https");
+      const otpBody = JSON.stringify({ from: "AttendQR <onboarding@resend.dev>", to: user.email,
+        subject: "AttendQR — Your Login Code",
+        html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#F7F7F5;border-radius:16px;">
+          <h2 style="color:#1A1A17;">Your Login Code</h2>
+          <p>Hi <strong>${user.name}</strong>, enter this code to complete your login:</p>
+          <div style="font-size:2.4rem;font-weight:800;letter-spacing:0.35em;color:#2563EB;text-align:center;padding:20px;background:#DBEAFE;border-radius:12px;margin:20px 0;">${otp}</div>
+          <p style="color:#888;font-size:0.8rem;">Expires in <strong>10 minutes</strong>.</p></div>` });
+      const otpReq = https.request({ hostname:"api.resend.com", path:"/emails", method:"POST",
+        headers:{"Authorization":`Bearer ${process.env.RESEND_API_KEY}`,"Content-Type":"application/json","Content-Length":Buffer.byteLength(otpBody)} },
+        (r) => { r.resume(); });
+      otpReq.on("error", ()=>{}); otpReq.write(otpBody); otpReq.end();
+      // Issue temp JWT (short-lived, 2fa-scoped)
+      const jwt = require("jsonwebtoken");
+      const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret_change_in_production";
+      const tempToken = jwt.sign({ id: user._id }, JWT_SECRET + "2fa", { expiresIn: "10m" });
+      return res.json({ success: true, requires2FA: true, tempToken,
+        message: "A verification code has been sent to your email." });
+    }
+
+    await user.save({ validateBeforeSave: false });
     const token = generateToken(user._id);
 
     res.json({
       success: true,
       message: "Login successful!",
       token,
-      user: { ...userPayload(user), isVerified: user.isVerified || false },
+      sessionId,
+      suspicious: isSuspicious,
+      user: { ...userPayload(user), isVerified: user.isVerified || false,
+              mustChangePassword: user.mustChangePassword || false,
+              twoFAEnabled: user.twoFAEnabled || false },
     });
   } catch (error) {
     res.status(500).json({ success: false, message: "Server error. Please try again." });

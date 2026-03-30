@@ -44,6 +44,28 @@ const userSchema = new mongoose.Schema(
     failedLoginAttempts: { type: Number, default: 0 },
     lockUntil:           { type: Date, default: null },
 
+    // 2FA via email OTP
+    twoFAEnabled:   { type: Boolean, default: false },
+    twoFASecret:    { type: String, default: null, select: false }, // hashed OTP
+    twoFAExpires:   { type: Date,   default: null },
+    twoFAPending:   { type: Boolean, default: false }, // waiting for OTP after login
+
+    // Active sessions (device management)
+    activeSessions: [{
+      sessionId:  { type: String },  // random UUID
+      ip:         { type: String },
+      browser:    { type: String },
+      os:         { type: String },
+      device:     { type: String },
+      createdAt:  { type: Date, default: Date.now },
+      lastSeenAt: { type: Date, default: Date.now },
+    }],
+
+    // Security flags
+    mustChangePassword: { type: Boolean, default: false }, // force change on next login
+    passwordChangedAt:  { type: Date, default: null },
+    lastKnownIP:        { type: String, default: null },   // for suspicious login detection
+
     // Teacher professional info
     school:        { type: String, trim: true },
     department:    { type: String, trim: true },

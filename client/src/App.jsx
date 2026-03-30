@@ -1847,6 +1847,7 @@ function ResetPasswordPage({ token }) {
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 function AuthPage({ onSuccess }) {
+  const [twoFAPendingLocal, setTwoFAPendingLocal] = useState(null);
   const [mode, setMode] = useState("login");
   const [role, setRole] = useState("student");
   const [form, setForm] = useState({ name: "", email: "", password: "", studentId: "", grade: "", section: "" });
@@ -1869,7 +1870,18 @@ function AuthPage({ onSuccess }) {
     e.preventDefault();
     setError(""); setSuccessMsg("");
     try {
-      if (mode === "login") { await login(form.email, form.password); onSuccess(); }
+      if (mode === "login") {
+        const result = await login(form.email, form.password);
+        if (result?.requires2FA) {
+          // Set parent 2FA pending state
+          setTwoFAPendingLocal({ tempToken: result.tempToken });
+          return;
+        }
+        onSuccess({ suspicious: result?.suspicious, sessionId: result?.sessionId });
+        if (result?.user?.mustChangePassword) {
+          // Will be shown in settings after redirect
+        }
+      }
       else if (mode === "register") { await register({ ...form, role }); onSuccess(); }
       else if (mode === "forgot") {
         const data = await api.post("/auth/forgot-password", { email: form.email });
@@ -1895,7 +1907,16 @@ function AuthPage({ onSuccess }) {
     reset:    { title: "Set new password",   sub: "Choose a strong password of at least 6 characters" },
   };
 
-  return (
+  if (twoFAPendingLocal) {
+    return (
+      <TwoFAVerifyScreen
+        tempToken={twoFAPendingLocal.tempToken}
+        onSuccess={(token) => { localStorage.setItem("token", token); window.location.reload(); }}
+      />
+    );
+  }
+
+    return (
     <div className="auth-page">
       <div className="auth-bg-orb auth-bg-orb-1" />
       <div className="auth-bg-orb auth-bg-orb-2" />
@@ -2003,6 +2024,51 @@ function AuthPage({ onSuccess }) {
           {(mode === "forgot" || mode === "reset") && <>Remember your password? <a onClick={() => { setMode("login"); setError(""); setSuccessMsg(""); }}>Sign in</a></>}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── IDLE TIMEOUT HOOK ────────────────────────────────────────────────────────
+function useIdleTimeout(onTimeout, minutes = 30) {
+  const { user } = useAuth();
+  useEffect(() => {
+    if (!user) return;
+    const ms = minutes * 60 * 1000;
+    let timer = setTimeout(onTimeout, ms);
+    const reset = () => { clearTimeout(timer); timer = setTimeout(onTimeout, ms); };
+    const events = ["mousemove","keydown","click","scroll","touchstart"];
+    events.forEach(e => window.addEventListener(e, reset, { passive: true }));
+    return () => { clearTimeout(timer); events.forEach(e => window.removeEventListener(e, reset)); };
+  }, [user, minutes]);
+}
+
+// ─── PASSWORD STRENGTH ────────────────────────────────────────────────────────
+function getPasswordStrength(pwd) {
+  if (!pwd) return { score: 0, label: "", color: "" };
+  let score = 0;
+  if (pwd.length >= 8)  score++;
+  if (pwd.length >= 12) score++;
+  if (/[A-Z]/.test(pwd)) score++;
+  if (/[0-9]/.test(pwd)) score++;
+  if (/[^A-Za-z0-9]/.test(pwd)) score++;
+  if (score <= 1) return { score, label: "Very Weak", color: "var(--red)" };
+  if (score === 2) return { score, label: "Weak",      color: "#f97316" };
+  if (score === 3) return { score, label: "Fair",      color: "var(--amber)" };
+  if (score === 4) return { score, label: "Strong",    color: "#84cc16" };
+  return { score, label: "Very Strong", color: "var(--green)" };
+}
+
+function PasswordStrengthBar({ password }) {
+  const { score, label, color } = getPasswordStrength(password);
+  if (!password) return null;
+  return (
+    <div style={{ marginTop: 6 }}>
+      <div style={{ display:"flex", gap:4, marginBottom:4 }}>
+        {[1,2,3,4,5].map(i => (
+          <div key={i} style={{ flex:1, height:4, borderRadius:2, background: i <= score ? color : "var(--border)", transition:"background 0.2s" }} />
+        ))}
+      </div>
+      <div style={{ fontSize:"0.72rem", color, fontWeight:600 }}>{label}</div>
     </div>
   );
 }
@@ -3851,6 +3917,7 @@ function TeacherSettings({ onBack }) {
               <div className="form-group">
                 <label className="form-label">New Password</label>
                 <input className="form-input" type="password" value={pwForm.newPassword} onChange={e => setPwForm(f => ({ ...f, newPassword: e.target.value }))} placeholder="Min. 6 characters" required />
+                <PasswordStrengthBar password={pwForm.newPassword} />
               </div>
               <div className="form-group">
                 <label className="form-label">Confirm New Password</label>
@@ -3863,6 +3930,7 @@ function TeacherSettings({ onBack }) {
           </div>
 
           <LoginHistorySection />
+          <SecuritySettingsSection />
         </div>
       </div>
     </div>
@@ -4043,12 +4111,262 @@ function StudentSettings({ onBack }) {
             </form>
           </div>
           <LoginHistorySection />
+          <SecuritySettingsSection />
         </div>
       </div>
     </div>
   );
 }
 
+
+// ─── SECURITY SETTINGS SECTION ───────────────────────────────────────────────
+function SecuritySettingsSection() {
+  const { user, logout } = useAuth();
+  const [twoFA, setTwoFA]           = useState(user?.twoFAEnabled || false);
+  const [otpStep, setOtpStep]       = useState(false); // showing OTP input
+  const [otp, setOtp]               = useState("");
+  const [twoFALoading, setTwoFALoading] = useState(false);
+  const [twoFAMsg, setTwoFAMsg]     = useState(null);
+  const [sessions, setSessions]     = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [currentIP, setCurrentIP]   = useState("");
+  const [showSessions, setShowSessions] = useState(false);
+  const [sessionId]                 = useState(() => localStorage.getItem("sessionId") || "");
+
+  // Load current IP
+  useEffect(() => {
+    api.get("/security/my-ip").then(d => setCurrentIP(d.ip)).catch(()=>{});
+  }, []);
+
+  const loadSessions = async () => {
+    setSessionsLoading(true);
+    try {
+      const d = await api.get("/security/sessions");
+      setSessions(d.sessions || []);
+      setShowSessions(true);
+    } catch(e) {}
+    finally { setSessionsLoading(false); }
+  };
+
+  const revokeSession = async (sid) => {
+    try {
+      await api.request("DELETE", `/security/sessions/${sid}`);
+      setSessions(s => s.filter(x => x.sessionId !== sid));
+    } catch(e) {}
+  };
+
+  const revokeAll = async () => {
+    try {
+      await api.request("DELETE", "/security/sessions/all", { currentSessionId: sessionId });
+      setSessions(s => s.filter(x => x.sessionId === sessionId));
+    } catch(e) {}
+  };
+
+  const handleToggle2FA = async () => {
+    if (twoFA) {
+      // Disable
+      setTwoFALoading(true);
+      try {
+        await api.request("POST", "/security/2fa/disable");
+        setTwoFA(false);
+        setTwoFAMsg({ type:"success", text:"Two-factor authentication disabled." });
+      } catch(e) { setTwoFAMsg({ type:"error", text: e.message }); }
+      finally { setTwoFALoading(false); }
+    } else {
+      // Enable — send OTP first
+      setTwoFALoading(true);
+      try {
+        await api.request("POST", "/security/2fa/enable");
+        setOtpStep(true);
+        setTwoFAMsg({ type:"info", text:"A verification code was sent to your email." });
+      } catch(e) { setTwoFAMsg({ type:"error", text: e.message }); }
+      finally { setTwoFALoading(false); }
+    }
+  };
+
+  const handleConfirm2FA = async () => {
+    if (!otp || otp.length !== 6) { setTwoFAMsg({ type:"error", text:"Enter the 6-digit code." }); return; }
+    setTwoFALoading(true);
+    try {
+      await api.request("POST", "/security/2fa/confirm", { otp });
+      setTwoFA(true); setOtpStep(false); setOtp("");
+      setTwoFAMsg({ type:"success", text:"2FA enabled! Your account is now more secure." });
+    } catch(e) { setTwoFAMsg({ type:"error", text: e.message }); }
+    finally { setTwoFALoading(false); }
+  };
+
+  const formatRelative = (dt) => {
+    const diff = Date.now() - new Date(dt);
+    const m = Math.floor(diff / 60000), h = Math.floor(diff / 3600000), d = Math.floor(diff / 86400000);
+    if (m < 1) return "Just now";
+    if (m < 60) return `${m}m ago`;
+    if (h < 24) return `${h}h ago`;
+    return `${d}d ago`;
+  };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+
+      {/* Current IP */}
+      <div className="settings-card">
+        <div className="settings-card-title">🌐 Current IP Address</div>
+        <div className="settings-card-sub">Your real-time detected IP address</div>
+        <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)" }}>
+          <span style={{ fontFamily:"var(--font-mono)", fontSize:"1rem", fontWeight:700, color:"var(--accent)", letterSpacing:"0.04em" }}>
+            {currentIP || "Detecting…"}
+          </span>
+          <button className="btn btn-ghost btn-sm" onClick={() => api.get("/security/my-ip").then(d => setCurrentIP(d.ip))} style={{ marginLeft:"auto" }}>↻ Refresh</button>
+        </div>
+      </div>
+
+      {/* 2FA */}
+      <div className="settings-card">
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+          <div>
+            <div className="settings-card-title">🔐 Two-Factor Authentication</div>
+            <div className="settings-card-sub">Require an email code every time you log in</div>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:"0.78rem", fontWeight:700, color: twoFA ? "var(--green)" : "var(--muted)" }}>
+              {twoFA ? "ON" : "OFF"}
+            </span>
+            <button
+              onClick={handleToggle2FA}
+              disabled={twoFALoading || otpStep}
+              style={{
+                width:44, height:24, borderRadius:12, border:"none", cursor:"pointer",
+                background: twoFA ? "var(--green)" : "var(--border2)",
+                position:"relative", transition:"background 0.2s",
+              }}
+            >
+              <span style={{
+                position:"absolute", top:3, left: twoFA ? 22 : 3,
+                width:18, height:18, borderRadius:"50%", background:"#fff",
+                transition:"left 0.2s", boxShadow:"0 1px 3px rgba(0,0,0,0.2)"
+              }}/>
+            </button>
+          </div>
+        </div>
+        {twoFAMsg && (
+          <div style={{ padding:"8px 12px", borderRadius:"var(--radius-sm)", marginBottom:10, fontSize:"0.82rem", fontWeight:600,
+            background: twoFAMsg.type === "error" ? "var(--red-lt)" : twoFAMsg.type === "success" ? "var(--green-lt)" : "var(--accent-lt)",
+            color: twoFAMsg.type === "error" ? "var(--red)" : twoFAMsg.type === "success" ? "var(--green)" : "var(--accent)",
+          }}>{twoFAMsg.text}</div>
+        )}
+        {otpStep && (
+          <div style={{ display:"flex", flexDirection:"column", gap:10, padding:"14px 16px", background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)" }}>
+            <div style={{ fontSize:"0.82rem", color:"var(--ink3)", fontWeight:600 }}>Enter the 6-digit code sent to your email:</div>
+            <div style={{ display:"flex", gap:8 }}>
+              <input className="form-input" style={{ textAlign:"center", fontSize:"1.3rem", letterSpacing:"0.4em", fontWeight:700, flex:1 }}
+                placeholder="000000" maxLength={6} value={otp}
+                onChange={e => setOtp(e.target.value.replace(/[^0-9]/g,""))}
+                onKeyDown={e => e.key === "Enter" && handleConfirm2FA()} autoFocus />
+              <button className="btn btn-primary btn-sm" onClick={handleConfirm2FA} disabled={twoFALoading}>
+                {twoFALoading ? <Spinner size={14}/> : "Confirm"}
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setOtpStep(false); setOtp(""); setTwoFAMsg(null); }}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Active Sessions */}
+      <div className="settings-card">
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div>
+            <div className="settings-card-title">📱 Active Sessions</div>
+            <div className="settings-card-sub">Devices currently logged into your account</div>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={showSessions ? () => setShowSessions(false) : loadSessions}>
+            {sessionsLoading ? <Spinner size={14}/> : showSessions ? "Hide" : "View Sessions"}
+          </button>
+        </div>
+        {showSessions && (
+          <div style={{ marginTop:14, display:"flex", flexDirection:"column", gap:8 }}>
+            {sessions.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"20px 0", color:"var(--muted)", fontSize:"0.85rem" }}>No active sessions found.</div>
+            ) : sessions.map(s => {
+              const isCurrent = s.sessionId === sessionId;
+              return (
+                <div key={s.sessionId} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:`1px solid ${isCurrent ? "var(--accent)" : "var(--border)"}` }}>
+                  <span style={{ fontSize:"1.2rem" }}>{s.device === "mobile" ? "📱" : "💻"}</span>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:"0.85rem", fontWeight:700, color:"var(--ink)", display:"flex", alignItems:"center", gap:6 }}>
+                      {s.browser}
+                      {isCurrent && <span style={{ fontSize:"0.68rem", background:"var(--accent)", color:"#fff", padding:"1px 7px", borderRadius:20, fontWeight:700 }}>This device</span>}
+                    </div>
+                    <div style={{ fontSize:"0.74rem", color:"var(--muted)", display:"flex", gap:8, flexWrap:"wrap", marginTop:2 }}>
+                      <span>🖥 {s.os}</span>
+                      {s.ip && <span style={{ fontFamily:"var(--font-mono)", fontSize:"0.7rem", background:"var(--surface3)", padding:"1px 5px", borderRadius:3 }}>{s.ip}</span>}
+                      <span>· {formatRelative(s.lastSeenAt)}</span>
+                    </div>
+                  </div>
+                  {!isCurrent && (
+                    <button className="btn btn-ghost btn-sm" onClick={() => revokeSession(s.sessionId)} style={{ color:"var(--red)", fontSize:"0.78rem" }}>Revoke</button>
+                  )}
+                </div>
+              );
+            })}
+            {sessions.filter(s => s.sessionId !== sessionId).length > 0 && (
+              <button className="btn btn-ghost btn-sm" onClick={revokeAll} style={{ color:"var(--red)", alignSelf:"flex-end" }}>
+                Revoke all other sessions
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+    </div>
+  );
+}
+
+// ─── 2FA VERIFY SCREEN ───────────────────────────────────────────────────────
+function TwoFAVerifyScreen({ tempToken, onSuccess }) {
+  const [otp, setOtp] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [resent, setResent] = useState(false);
+
+  const handleVerify = async () => {
+    if (!otp || otp.length !== 6) { setError("Enter the 6-digit code from your email."); return; }
+    setLoading(true); setError("");
+    try {
+      const data = await api.request("POST", "/security/2fa/verify", { otp, tempToken });
+      onSuccess(data.token, data.user);
+    } catch(e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"var(--bg)", padding:24 }}>
+      <div className="auth-card" style={{ maxWidth:400, textAlign:"center" }}>
+        <div style={{ fontSize:"2.5rem", marginBottom:12 }}>🔐</div>
+        <h2 style={{ fontFamily:"var(--font-heading)", color:"var(--ink)", marginBottom:8 }}>Two-Factor Authentication</h2>
+        <p style={{ color:"var(--muted)", fontSize:"0.88rem", marginBottom:24 }}>
+          A 6-digit code was sent to your email address. Enter it below to complete your login.
+        </p>
+        {error && <div style={{ padding:"10px 14px", background:"var(--red-lt)", border:"1px solid var(--red)", borderRadius:"var(--radius-sm)", color:"var(--red)", fontSize:"0.83rem", marginBottom:12 }}>{error}</div>}
+        <input
+          className="form-input"
+          style={{ textAlign:"center", fontSize:"1.6rem", letterSpacing:"0.4em", fontWeight:700, marginBottom:16 }}
+          placeholder="000000"
+          maxLength={6}
+          value={otp}
+          onChange={e => setOtp(e.target.value.replace(/\D/g,""))}
+          onKeyDown={e => e.key === "Enter" && handleVerify()}
+          autoFocus
+        />
+        <button className="btn btn-primary" style={{ width:"100%", marginBottom:12 }} onClick={handleVerify} disabled={loading}>
+          {loading ? <Spinner /> : "Verify Code"}
+        </button>
+        <button className="btn btn-ghost btn-sm" style={{ width:"100%" }} onClick={() => window.location.reload()}>
+          ← Back to Login
+        </button>
+        {resent && <div style={{ fontSize:"0.78rem", color:"var(--green)", marginTop:8 }}>✓ New code sent to your email.</div>}
+      </div>
+    </div>
+  );
+}
 
 // ─── ADMIN SETTINGS ──────────────────────────────────────────────────────────
 function AdminSettings({ onBack }) {
@@ -4099,6 +4417,7 @@ function AdminSettings({ onBack }) {
               placeholder="Min. 6 characters"
               value={form.newPassword}
               onChange={e => setForm(f => ({ ...f, newPassword: e.target.value }))} />
+            <PasswordStrengthBar password={form.newPassword} />
           </div>
           <div className="form-group">
             <label className="form-label">Confirm New Password</label>
@@ -4573,7 +4892,19 @@ function App() {
     }
   }, []);
 
-  const handleAuthSuccess = () => setPage("home");
+  const [twoFAPending, setTwoFAPending] = useState(null); // { tempToken }
+  const [suspiciousAlert, setSuspiciousAlert] = useState(false);
+
+  const handleAuthSuccess = (opts = {}) => {
+    if (opts.suspicious) setSuspiciousAlert(true);
+    if (opts.sessionId)  localStorage.setItem("sessionId", opts.sessionId);
+    setPage("home");
+  };
+
+  const handleLogout = () => { logout(); setTwoFAPending(null); setSuspiciousAlert(false); localStorage.removeItem("sessionId"); };
+
+  // Idle timeout — 30 minutes
+  useIdleTimeout(() => { if (user) { handleLogout(); } }, 30);
 
   if (page === "reset-password" && resetToken) return <ResetPasswordPage token={resetToken} />;
   if (page === "verify-email"   && resetToken) return <VerifyEmailPage token={resetToken} />;
@@ -4581,10 +4912,21 @@ function App() {
 
   if (page === "checkin" && qrToken) return <CheckInPage token={qrToken} />;
 
+  // twoFAPending is now handled inside AuthPage directly
+
   return (
     <div className="app">
       <Nav onSettings={() => setPage("settings")} />
       <EmailVerificationBanner />
+      {suspiciousAlert && (
+        <div style={{ background:"#FEF3C7", borderBottom:"1px solid #D97706", padding:"10px 24px", display:"flex", alignItems:"center", gap:12 }}>
+          <span style={{ fontSize:"1.1rem" }}>⚠️</span>
+          <div style={{ flex:1, fontSize:"0.85rem", color:"#92400E", fontWeight:600 }}>
+            New login detected from an unrecognized IP address. If this was not you, change your password immediately and enable 2FA in Settings.
+          </div>
+          <button onClick={() => setSuspiciousAlert(false)} style={{ background:"none", border:"none", cursor:"pointer", color:"#92400E", fontWeight:700, fontSize:"1rem" }}>✕</button>
+        </div>
+      )}
       {page === "settings" && user.role === "admin" ? (
         <AdminSettings onBack={() => setPage("home")} />
       )
