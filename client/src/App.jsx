@@ -3399,17 +3399,23 @@ function QRScannerModal({ onClose, onScan }) {
   const [torch, setTorch]         = useState(false);
   const [scanned, setScanned]     = useState(false);
 
-  // Load jsQR from CDN dynamically
-  useEffect(() => {
-    if (!window.jsQR) {
+  // Load jsQR from CDN dynamically then start camera
+  const loadJsQRAndStart = async () => {
+    if (window.jsQR) { startCamera(); return; }
+    // Check if script tag already added (e.g. previous failed load)
+    const existing = document.querySelector('script[src*="jsQR"]');
+    if (existing) existing.remove(); // remove stale/errored script
+    return new Promise((resolve) => {
       const script = document.createElement("script");
       script.src = "https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js";
-      script.onload = () => startCamera();
-      script.onerror = () => setError("Failed to load QR scanner library.");
+      script.onload  = () => { resolve(); startCamera(); };
+      script.onerror = () => { setError("Failed to load QR scanner library. Check your internet connection and try again."); resolve(); };
       document.head.appendChild(script);
-    } else {
-      startCamera();
-    }
+    });
+  };
+
+  useEffect(() => {
+    loadJsQRAndStart();
     return () => stopCamera();
   }, []);
 
@@ -3523,7 +3529,7 @@ function QRScannerModal({ onClose, onScan }) {
             <div style={{ textAlign:"center", padding:"28px 16px" }}>
               <div style={{ fontSize:"2.5rem", marginBottom:12 }}>📵</div>
               <div style={{ color:"var(--red)", fontWeight:600, fontSize:"0.9rem", marginBottom:16 }}>{error}</div>
-              <button className="btn btn-primary btn-sm" onClick={startCamera}>Try Again</button>
+              <button className="btn btn-primary btn-sm" onClick={() => { setError(""); loadJsQRAndStart(); }}>Try Again</button>
             </div>
           ) : (
             <>
