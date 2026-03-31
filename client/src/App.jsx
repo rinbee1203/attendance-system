@@ -4441,9 +4441,12 @@ function SecuritySettingsSection() {
   const [showSessions, setShowSessions] = useState(false);
   const [sessionId]                 = useState(() => localStorage.getItem("sessionId") || "");
 
-  // Load current IP
+  // Load current IP — poll every 30 seconds
   useEffect(() => {
-    api.get("/security/my-ip").then(d => setCurrentIP(d.ip)).catch(()=>{});
+    const fetchIP = () => api.get("/security/my-ip").then(d => setCurrentIP(d.ip)).catch(()=>{});
+    fetchIP(); // immediate on mount
+    const interval = setInterval(fetchIP, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const loadSessions = async () => {
@@ -4520,10 +4523,13 @@ function SecuritySettingsSection() {
         <div className="settings-card-title">🌐 Current IP Address</div>
         <div className="settings-card-sub">Your real-time detected IP address</div>
         <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)" }}>
-          <span style={{ fontFamily:"var(--font-mono)", fontSize:"1rem", fontWeight:700, color:"var(--accent)", letterSpacing:"0.04em" }}>
-            {currentIP || "Detecting…"}
-          </span>
-          <button className="btn btn-ghost btn-sm" onClick={() => api.get("/security/my-ip").then(d => setCurrentIP(d.ip))} style={{ marginLeft:"auto" }}>↻ Refresh</button>
+          <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+            <span style={{ fontFamily:"var(--font-mono)", fontSize:"1rem", fontWeight:700, color:"var(--accent)", letterSpacing:"0.04em" }}>
+              {currentIP || "Detecting…"}
+            </span>
+            <span style={{ fontSize:"0.68rem", color:"var(--muted)" }}>Updates every 30 seconds</span>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={() => api.get("/security/my-ip").then(d => setCurrentIP(d.ip)).catch(()=>{})} style={{ marginLeft:"auto" }} title="Refreshes automatically every 30 seconds">↻</button>
         </div>
       </div>
 
