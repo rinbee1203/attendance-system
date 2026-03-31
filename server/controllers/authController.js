@@ -249,8 +249,9 @@ const login = async (req, res) => {
     });
     if (user.loginHistory.length > 20) user.loginHistory = user.loginHistory.slice(-20);
 
-    // ── Suspicious login detection (new IP) ──
-    const isSuspicious = user.lastKnownIP && user.lastKnownIP !== ip && ip !== "Unknown";
+    // ── Suspicious login detection (new IP, only after 3+ prior logins) ──
+    const priorLogins = (user.loginHistory || []).length;
+    const isSuspicious = priorLogins >= 3 && user.lastKnownIP && user.lastKnownIP !== ip && ip !== "Unknown";
     if (isSuspicious) {
       user.loginHistory[user.loginHistory.length - 1].suspicious = true;
     }

@@ -5235,12 +5235,12 @@ function App() {
       <Nav onSettings={() => setPage("settings")} />
       <EmailVerificationBanner />
       {suspiciousAlert && (
-        <div style={{ background:"#FEF3C7", borderBottom:"1px solid #D97706", padding:"10px 24px", display:"flex", alignItems:"center", gap:12 }}>
-          <span style={{ fontSize:"1.1rem" }}>⚠️</span>
-          <div style={{ flex:1, fontSize:"0.85rem", color:"#92400E", fontWeight:600 }}>
-            New login detected from an unrecognized IP address. If this was not you, change your password immediately and enable 2FA in Settings.
+        <div style={{ background:"var(--accent-lt)", borderBottom:"1px solid var(--accent)", padding:"10px 24px", display:"flex", alignItems:"center", gap:12 }}>
+          <span style={{ fontSize:"1rem" }}>🔔</span>
+          <div style={{ flex:1, fontSize:"0.83rem", color:"var(--accent-dk, #1e40af)" }}>
+            New device login detected. If this was you, no action needed. If not, go to Settings → Security to review active sessions.
           </div>
-          <button onClick={() => setSuspiciousAlert(false)} style={{ background:"none", border:"none", cursor:"pointer", color:"#92400E", fontWeight:700, fontSize:"1rem" }}>✕</button>
+          <button onClick={() => setSuspiciousAlert(false)} style={{ background:"none", border:"none", cursor:"pointer", color:"var(--accent)", fontWeight:700, fontSize:"1rem" }}>✕</button>
         </div>
       )}
       {page === "settings" && user.role === "admin" ? (
