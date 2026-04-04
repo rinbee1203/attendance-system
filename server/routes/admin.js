@@ -2,7 +2,7 @@ const express = require("express");
 const router  = express.Router();
 const { protect, restrictTo } = require("../middleware/auth");
 const {
-  setupAdmin, resetUserPassword, forcePasswordChange, getStats, getUsers, getUser, deleteUser, verifyUser, unverifyUser,
+  setupAdmin, resetUserPassword, getStats, getUsers, getUser, deleteUser, verifyUser, unverifyUser,
   getSessions, stopSession, deleteSession,
   getDeviceRequests, approveDevice, rejectDevice, resetTrustedDevice, toggleDevicePolicy,
 } = require("../controllers/adminController");
@@ -21,7 +21,6 @@ router.delete("/users/:id",            deleteUser);
 router.patch("/users/:id/verify",      verifyUser);
 router.patch("/users/:id/unverify",    unverifyUser);
 router.patch("/users/:id/password",    resetUserPassword);
-router.patch("/users/:id/force-password-change", forcePasswordChange);
 router.get("/sessions",                getSessions);
 router.patch("/sessions/:id/stop",     stopSession);
 router.delete("/sessions/:id",         deleteSession);
