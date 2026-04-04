@@ -26,6 +26,7 @@ const api = {
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        "x-device-fingerprint": DEVICE_FP,
         ...(optHeaders || {}),
       },
       ...restOptions,
@@ -1876,6 +1877,7 @@ function ResetPasswordPage({ token }) {
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 function AuthPage({ onSuccess }) {
   const [twoFAPendingLocal, setTwoFAPendingLocal] = useState(null);
+  const [deviceBlocked, setDeviceBlocked] = useState(false);
   const [mode, setMode] = useState("login");
   const [role, setRole] = useState("student");
   const [form, setForm] = useState({ name: "", email: "", password: "", studentId: "", grade: "", section: "" });
@@ -1901,8 +1903,11 @@ function AuthPage({ onSuccess }) {
       if (mode === "login") {
         const result = await login(form.email, form.password);
         if (result?.requires2FA) {
-          // Set parent 2FA pending state
           setTwoFAPendingLocal({ tempToken: result.tempToken });
+          return;
+        }
+        if (result?.deviceBlocked) {
+          setDeviceBlocked(true);
           return;
         }
         onSuccess({ suspicious: result?.suspicious, sessionId: result?.sessionId });
@@ -1934,6 +1939,10 @@ function AuthPage({ onSuccess }) {
     forgot:   { title: "Forgot password?",   sub: "Enter your email and we'll send a reset link" },
     reset:    { title: "Set new password",   sub: "Choose a strong password of at least 6 characters" },
   };
+
+  if (deviceBlocked) {
+    return <DeviceBlockedScreen email={form.email} onBack={() => setDeviceBlocked(false)} />;
+  }
 
   if (twoFAPendingLocal) {
     return (
@@ -2101,6 +2110,35 @@ function PasswordStrengthBar({ password }) {
   );
 }
 
+// ─── DEVICE FINGERPRINT ───────────────────────────────────────────────────────
+// Generates a stable browser/device fingerprint using available signals
+const getDeviceFingerprint = () => {
+  const nav = window.navigator;
+  const screen = window.screen;
+  const components = [
+    nav.userAgent,
+    nav.language,
+    nav.platform,
+    `${screen.width}x${screen.height}x${screen.colorDepth}`,
+    nav.hardwareConcurrency || "",
+    nav.deviceMemory || "",
+    Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+    nav.cookieEnabled,
+    typeof nav.getBattery !== "undefined",
+  ].join("|");
+  // Simple hash
+  let hash = 0;
+  for (let i = 0; i < components.length; i++) {
+    const char = components.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36) + components.length.toString(36);
+};
+
+// Store fingerprint once per session
+const DEVICE_FP = getDeviceFingerprint();
+
 // ─── GRADE / SECTION FILTER WIDGET ───────────────────────────────────────────
 function GradeFilterWidget({ allowedGrades, allowedSections, onChange }) {
   const [gradeInput, setGradeInput]     = useState(allowedGrades.join(", "));
@@ -2194,6 +2232,13 @@ function GradeFilterWidget({ allowedGrades, allowedSections, onChange }) {
 // ─── EDIT SESSION MODAL ───────────────────────────────────────────────────────
 function EditSessionModal({ session, onClose, onSaved }) {
   useEscKey(onClose);
+  const toLocalDT = (d) => {
+    if (!d) return "";
+    const dt = new Date(d);
+    const off = dt.getTimezoneOffset();
+    return new Date(dt.getTime() - off * 60000).toISOString().slice(0, 16);
+  };
+
   const [form, setForm] = useState({
     subject:          session.subject || "",
     room:             session.room || "",
@@ -2201,6 +2246,8 @@ function EditSessionModal({ session, onClose, onSaved }) {
     lateAfterMinutes: session.lateAfterMinutes ?? 15,
     allowedGrades:    session.allowedGrades || [],
     allowedSections:  session.allowedSections || [],
+    scheduledStart:   toLocalDT(session.scheduledStart),
+    scheduledEnd:     toLocalDT(session.scheduledEnd),
   });
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState("");
@@ -2290,6 +2337,20 @@ function EditSessionModal({ session, onClose, onSaved }) {
           />
         </div>
 
+        {/* Scheduled dates */}
+        <div className="form-row">
+          <div className="form-group">
+            <label className="form-label">Scheduled Start</label>
+            <input className="form-input" type="datetime-local" value={form.scheduledStart}
+              onChange={e => setForm(f => ({ ...f, scheduledStart: e.target.value }))} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Scheduled End</label>
+            <input className="form-input" type="datetime-local" value={form.scheduledEnd}
+              onChange={e => setForm(f => ({ ...f, scheduledEnd: e.target.value }))} />
+          </div>
+        </div>
+
         {/* Description */}
         <div className="form-group">
           <label className="form-label">Description</label>
@@ -2326,7 +2387,7 @@ function EditSessionModal({ session, onClose, onSaved }) {
 // ─── CREATE SESSION MODAL ─────────────────────────────────────────────────────
 function CreateSessionModal({ onClose, onCreated }) {
   const defaultEnd = getDefaultEndDate();
-  const [form, setForm] = useState({ subject: "", room: "", description: "", expiresAt: defaultEnd, lateAfterMinutes: 15, allowedGrades: [], allowedSections: [] });
+  const [form, setForm] = useState({ subject: "", room: "", description: "", expiresAt: defaultEnd, lateAfterMinutes: 15, allowedGrades: [], allowedSections: [], scheduledStart: "", scheduledEnd: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   useEscKey(onClose);
@@ -2364,9 +2425,21 @@ function CreateSessionModal({ onClose, onCreated }) {
               <input className="form-input" value={form.room} onChange={(e) => setForm((f) => ({ ...f, room: e.target.value }))} placeholder="e.g. Room 201" />
             </div>
             <div className="form-group">
-              <label className="form-label">End Date / Time</label>
+              <label className="form-label">Session Expiry</label>
               <input className="form-input" type="datetime-local" value={form.expiresAt} onChange={(e) => setForm((f) => ({ ...f, expiresAt: e.target.value }))} />
               <p className="form-hint">Default: 210 days from now</p>
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Scheduled Start</label>
+              <input className="form-input" type="datetime-local" value={form.scheduledStart} onChange={(e) => setForm((f) => ({ ...f, scheduledStart: e.target.value }))} />
+              <p className="form-hint">When you plan to start this session</p>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Scheduled End</label>
+              <input className="form-input" type="datetime-local" value={form.scheduledEnd} onChange={(e) => setForm((f) => ({ ...f, scheduledEnd: e.target.value }))} />
+              <p className="form-hint">When you plan to end this session</p>
             </div>
           </div>
           <div className="form-group">
@@ -2961,6 +3034,8 @@ function TeacherDashboard() {
   const [loadingAttendance, setLoadingAttendance] = useState(false);
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedStudent, setSelectedStudent] = useState(null);
+  const [liveCount, setLiveCount]   = useState(0); // real-time new check-ins since opened
+  const sseRef = useRef(null);
   const [editSession, setEditSession]   = useState(null);
 
   const fetchSessions = useCallback(async () => {
@@ -3017,11 +3092,44 @@ function TeacherDashboard() {
     setViewSession(session);
     setLoadingAttendance(true);
     setFilterStatus("all");
+    setLiveCount(0);
+    // Close any existing SSE connection
+    if (sseRef.current) { sseRef.current.close(); sseRef.current = null; }
     try {
       const data = await api.get(`/sessions/${session._id}`);
       setAttendance(data.attendance);
+      // Open SSE stream if session is active
+      if (session.isActive) {
+        const token = localStorage.getItem("token");
+        const es = new EventSource(
+          `${(typeof API_BASE !== "undefined" ? API_BASE : "/api")}/attendance/stream/${session._id}?token=${token}`
+        );
+        es.onmessage = (e) => {
+          try {
+            const msg = JSON.parse(e.data);
+            if (msg.type === "new_attendance") {
+              setAttendance(prev => {
+                // Avoid duplicates
+                if (prev.some(a => a._id === msg.attendance._id)) return prev;
+                setLiveCount(n => n + 1);
+                return [msg.attendance, ...prev];
+              });
+            }
+          } catch(err) {}
+        };
+        es.onerror = () => { es.close(); };
+        sseRef.current = es;
+      }
     } catch (err) { console.error(err); }
     finally { setLoadingAttendance(false); }
+  };
+
+  // Close SSE when leaving detail view
+  const closeDetailView = () => {
+    if (sseRef.current) { sseRef.current.close(); sseRef.current = null; }
+    setViewSession(null);
+    setAttendance([]);
+    setLiveCount(0);
   };
 
   const filteredAttendance = filterStatus === "all"
@@ -3040,9 +3148,22 @@ function TeacherDashboard() {
           <>
             {/* ── DETAIL VIEW ── */}
             <div className="detail-header">
-              <button className="btn btn-ghost btn-sm detail-back" onClick={() => setViewSession(null)}>← Back</button>
+              <button className="btn btn-ghost btn-sm detail-back" onClick={closeDetailView}>← Back</button>
               <div className="detail-info">
-                <div className="detail-title">{viewSession.subject}</div>
+                <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                  <div className="detail-title">{viewSession.subject}</div>
+                  {viewSession.isActive && (
+                    <span style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"3px 10px", borderRadius:20, background:"var(--green-lt)", border:"1px solid var(--green)", fontSize:"0.75rem", fontWeight:700, color:"var(--green)" }}>
+                      <span style={{ width:7, height:7, borderRadius:"50%", background:"var(--green)", display:"inline-block", animation:"pulse 1.5s ease-in-out infinite" }}/>
+                      LIVE
+                    </span>
+                  )}
+                  {liveCount > 0 && (
+                    <span style={{ padding:"3px 10px", borderRadius:20, background:"var(--accent-lt)", border:"1px solid var(--accent)", fontSize:"0.75rem", fontWeight:700, color:"var(--accent)" }}>
+                      +{liveCount} new
+                    </span>
+                  )}
+                </div>
                 <div className="detail-meta">
                   {viewSession.room && (
                     <span className="session-meta-chip">
@@ -3054,6 +3175,16 @@ function TeacherDashboard() {
                     <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM1 4v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4H1z"/></svg>
                     Created {formatDate(viewSession.createdAt)}
                   </span>
+                  {viewSession.scheduledStart && (
+                    <span className="session-meta-chip">
+                      📅 Scheduled: {new Date(viewSession.scheduledStart).toLocaleString("en-PH", { month:"short", day:"numeric", year:"numeric", hour:"2-digit", minute:"2-digit", timeZone:"Asia/Manila" })}
+                    </span>
+                  )}
+                  {viewSession.scheduledEnd && (
+                    <span className="session-meta-chip">
+                      🏁 Ends: {new Date(viewSession.scheduledEnd).toLocaleString("en-PH", { month:"short", day:"numeric", year:"numeric", hour:"2-digit", minute:"2-digit", timeZone:"Asia/Manila" })}
+                    </span>
+                  )}
                   {viewSession.activatedAt && (
                     <span className="session-meta-chip chip-accent">
                       <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/></svg>
@@ -3200,6 +3331,17 @@ function TeacherDashboard() {
                           <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/></svg>
                           Late after {session.lateAfterMinutes ?? 15}m
                         </span>
+                        {/* Scheduled date chips */}
+                        {session.scheduledStart && (
+                          <span className="session-meta-chip" style={{ borderColor:"var(--accent)", color:"var(--accent)" }}>
+                            📅 {new Date(session.scheduledStart).toLocaleString("en-PH", { month:"short", day:"numeric", hour:"2-digit", minute:"2-digit", timeZone:"Asia/Manila" })}
+                          </span>
+                        )}
+                        {session.scheduledEnd && (
+                          <span className="session-meta-chip" style={{ borderColor:"var(--muted)", color:"var(--muted)" }}>
+                            🏁 {new Date(session.scheduledEnd).toLocaleString("en-PH", { month:"short", day:"numeric", hour:"2-digit", minute:"2-digit", timeZone:"Asia/Manila" })}
+                          </span>
+                        )}
                         {/* Restriction chip */}
                         {(session.allowedGrades?.length > 0 || session.allowedSections?.length > 0) && (
                           <span className="session-meta-chip" style={{ borderColor:"var(--amber)", color:"var(--amber)", background:"var(--amber-lt)" }}>
@@ -4449,6 +4591,40 @@ function SecuritySettingsSection() {
     return () => clearInterval(interval);
   }, []);
 
+  const loadDeviceRequests = async () => {
+    setDeviceLoading(true);
+    try {
+      const d = await api.get("/admin/device-requests");
+      setDeviceRequests(d.requests || []);
+    } catch(e) { showToast(e.message, "error"); }
+    finally { setDeviceLoading(false); }
+  };
+
+  const handleApproveDevice = async (userId, fingerprint) => {
+    try {
+      await api.request("PATCH", `/admin/device-requests/${userId}/approve`, { fingerprint });
+      showToast("Device approved ✓");
+      loadDeviceRequests();
+      loadStats();
+    } catch(e) { showToast(e.message, "error"); }
+  };
+
+  const handleRejectDevice = async (userId, fingerprint) => {
+    try {
+      await api.request("DELETE", `/admin/device-requests/${userId}/reject`, { fingerprint });
+      showToast("Device request rejected.");
+      loadDeviceRequests();
+    } catch(e) { showToast(e.message, "error"); }
+  };
+
+  const handleResetDevice = async (userId) => {
+    try {
+      await api.request("PATCH", `/admin/users/${userId}/reset-device`);
+      showToast("Device policy reset. Student can login from any device once.");
+      loadDeviceRequests();
+    } catch(e) { showToast(e.message, "error"); }
+  };
+
   const loadSessions = async () => {
     setSessionsLoading(true);
     try {
@@ -4532,6 +4708,40 @@ function SecuritySettingsSection() {
           <button className="btn btn-ghost btn-sm" onClick={() => api.get("/security/my-ip").then(d => setCurrentIP(d.ip)).catch(()=>{})} style={{ marginLeft:"auto" }} title="Refreshes automatically every 30 seconds">↻</button>
         </div>
       </div>
+
+      {/* Trusted Device */}
+      {user?.role === "student" && (
+        <div className="settings-card">
+          <div className="settings-card-title">📱 Trusted Device</div>
+          <div className="settings-card-sub">This is the only device allowed to access your account</div>
+          <div style={{ marginTop:12, padding:"12px 14px", background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)" }}>
+            {user?.trustedDevice?.browser ? (
+              <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                <span style={{ fontSize:"1.5rem" }}>💻</span>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700, fontSize:"0.88rem", color:"var(--ink)" }}>
+                    {user.trustedDevice.label || "Primary Device"}
+                    <span style={{ marginLeft:8, padding:"2px 8px", borderRadius:20, background:"var(--green-lt)", color:"var(--green)", fontSize:"0.68rem", fontWeight:700 }}>✓ Trusted</span>
+                  </div>
+                  <div style={{ fontSize:"0.75rem", color:"var(--muted)", marginTop:2 }}>
+                    {user.trustedDevice.browser} · {user.trustedDevice.os}
+                  </div>
+                  <div style={{ fontSize:"0.72rem", color:"var(--muted)", marginTop:2 }}>
+                    Registered: {user.trustedDevice.registeredAt ? new Date(user.trustedDevice.registeredAt).toLocaleDateString("en-PH", { month:"long", day:"numeric", year:"numeric" }) : "Unknown"}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontSize:"0.85rem", color:"var(--muted)", textAlign:"center", padding:"8px 0" }}>
+                No trusted device registered yet. Your next login will register this device.
+              </div>
+            )}
+          </div>
+          <p style={{ fontSize:"0.78rem", color:"var(--muted)", marginTop:8 }}>
+            If your device is lost or stolen, log in from the new device and submit a device change request to your administrator.
+          </p>
+        </div>
+      )}
 
       {/* 2FA */}
       <div className="settings-card">
@@ -4630,6 +4840,60 @@ function SecuritySettingsSection() {
         )}
       </div>
 
+    </div>
+  );
+}
+
+// ─── DEVICE BLOCKED SCREEN ───────────────────────────────────────────────────
+function DeviceBlockedScreen({ onBack, email }) {
+  const [reason, setReason] = useState("");
+  const [sent, setSent]     = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const handleRequest = async () => {
+    setLoading(true);
+    try {
+      await api.post("/auth/request-device", { reason, fingerprint: DEVICE_FP, email });
+      setSent(true);
+    } catch(e) {}
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"var(--bg)", padding:24 }}>
+      <div className="auth-card" style={{ maxWidth:420, textAlign:"center" }}>
+        <div style={{ fontSize:"3rem", marginBottom:16 }}>🔒</div>
+        <h2 style={{ fontFamily:"var(--font-heading)", color:"var(--ink)", marginBottom:8 }}>Device Not Recognized</h2>
+        {!sent ? (
+          <>
+            <p style={{ color:"var(--muted)", fontSize:"0.88rem", marginBottom:20, lineHeight:1.6 }}>
+              This device is not registered for your account. For security, AttendQR only allows login from your registered device.<br/><br/>
+              If your device was <strong>lost or stolen</strong>, you can request access from a new device below.
+            </p>
+            <div className="form-group" style={{ textAlign:"left" }}>
+              <label className="form-label">Reason for new device request</label>
+              <input className="form-input" placeholder="e.g. My phone was stolen, using school computer..."
+                value={reason} onChange={e => setReason(e.target.value)} />
+              <p className="form-hint">Your request will be reviewed by the administrator.</p>
+            </div>
+            <button className="btn btn-primary" style={{ width:"100%", marginBottom:10 }}
+              onClick={handleRequest} disabled={loading || !reason.trim()}>
+              {loading ? <Spinner /> : "📨 Submit Device Request"}
+            </button>
+            <button className="btn btn-ghost btn-sm" style={{ width:"100%" }} onClick={onBack}>← Back to Login</button>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize:"2.5rem", marginBottom:12 }}>✅</div>
+            <p style={{ color:"var(--green)", fontWeight:700, marginBottom:8 }}>Request Submitted!</p>
+            <p style={{ color:"var(--muted)", fontSize:"0.85rem", marginBottom:20 }}>
+              Your request has been sent to the administrator. You will be notified when it is approved.
+              Please contact your teacher or school office if you need immediate access.
+            </p>
+            <button className="btn btn-ghost btn-sm" style={{ width:"100%" }} onClick={onBack}>← Back to Login</button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -4799,6 +5063,9 @@ function AdminUserRow({ user, onDelete, onVerify, onUnverify, onView }) {
           {user.isVerified
             ? <AdminBadge color="green">✓ Verified</AdminBadge>
             : <AdminBadge color="amber">⚠ Unverified</AdminBadge>}
+          {user.pendingDevices?.length > 0 && (
+            <AdminBadge color="amber">📱 {user.pendingDevices.length} device req.</AdminBadge>
+          )}
         </div>
         <div style={{ fontSize:"0.75rem", color:"var(--muted)", marginTop:2, display:"flex", gap:10, flexWrap:"wrap" }}>
           <span>{user.email}</span>
@@ -4992,6 +5259,8 @@ function AdminDashboard() {
   const [stats, setStats]       = useState(null);
   const [users, setUsers]       = useState([]);
   const [sessions, setSessions] = useState([]);
+  const [deviceRequests, setDeviceRequests] = useState([]);
+  const [deviceLoading, setDeviceLoading]   = useState(false);
   const [loading, setLoading]   = useState(false);
   const [search, setSearch]     = useState("");
   const [roleFilter, setRoleFilter]     = useState("");
@@ -5040,6 +5309,7 @@ function AdminDashboard() {
     if (tab === "users")    loadUsers("student");
     if (tab === "teachers") loadUsers("teacher");
     if (tab === "sessions") loadSessions();
+    if (tab === "devices")  loadDeviceRequests();
   }, [tab, roleFilter, verifiedFilter, sessionFilter]);
 
   const handleSearch = (e) => {
@@ -5110,7 +5380,7 @@ function AdminDashboard() {
 
       {/* Tabs */}
       <div style={{ display:"flex", gap:4, borderBottom:"2px solid var(--border)", marginBottom:20 }}>
-        {[["users","👥 Students"], ["teachers","🧑‍🏫 Teachers"], ["sessions","📋 Sessions"]].map(([key, label]) => (
+        {[["users","👥 Students"], ["teachers","🧑‍🏫 Teachers"], ["sessions","📋 Sessions"], ["devices","📱 Device Requests"]].map(([key, label]) => (
           <button key={key} onClick={() => { setTab(key); setSearch(""); }} style={{
             padding:"8px 18px", fontWeight:700, fontSize:"0.85rem", border:"none", cursor:"pointer",
             background:"none", borderBottom: tab === key ? "2px solid var(--accent)" : "2px solid transparent",
@@ -5162,6 +5432,61 @@ function AdminDashboard() {
             <AdminUserRow key={u._id} user={u}
               onDelete={handleDelete} onVerify={handleVerify}
               onUnverify={handleUnverify} onView={setViewUser} />
+          ))}
+        </div>
+      ) : tab === "devices" ? (
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {deviceLoading ? (
+            <div style={{ display:"flex", justifyContent:"center", padding:"40px 0" }}><Spinner size={24}/></div>
+          ) : deviceRequests.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"40px 0", color:"var(--muted)" }}>
+              <div style={{ fontSize:"2rem", marginBottom:8 }}>📱</div>
+              <div style={{ fontWeight:600, color:"var(--ink3)" }}>No pending device requests</div>
+            </div>
+          ) : deviceRequests.map((req, i) => (
+            <div key={`${req.userId}-${req.fingerprint}`} style={{
+              padding:"14px 16px", borderRadius:"var(--radius-sm)",
+              border:"1px solid var(--amber)", background:"var(--amber-lt)",
+              display:"flex", flexDirection:"column", gap:10,
+            }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                <span style={{ fontSize:"1.2rem" }}>{req.device === "mobile" ? "📱" : "💻"}</span>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700, fontSize:"0.9rem", color:"var(--ink)" }}>
+                    {req.userName}
+                    <span style={{ fontSize:"0.75rem", color:"var(--muted)", fontWeight:400, marginLeft:8 }}>{req.userEmail}</span>
+                  </div>
+                  <div style={{ fontSize:"0.75rem", color:"var(--muted)", marginTop:2 }}>
+                    {req.grade && <span>Grade: {req.grade} · </span>}
+                    {req.section && <span>Section: {req.section} · </span>}
+                    Requested: {new Date(req.requestedAt).toLocaleString("en-PH", { timeZone:"Asia/Manila", dateStyle:"medium", timeStyle:"short" })}
+                  </div>
+                </div>
+                <AdminBadge color="amber">⏳ Pending</AdminBadge>
+              </div>
+              <div style={{ background:"var(--surface2)", borderRadius:"var(--radius-sm)", padding:"10px 12px", fontSize:"0.82rem" }}>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                  <div><span style={{ color:"var(--muted)", fontWeight:600 }}>New Device: </span>{req.browser} · {req.os}</div>
+                  <div><span style={{ color:"var(--muted)", fontWeight:600 }}>IP: </span><code style={{ fontSize:"0.78rem" }}>{req.ip}</code></div>
+                  {req.trustedDevice?.browser && <div><span style={{ color:"var(--muted)", fontWeight:600 }}>Current Device: </span>{req.trustedDevice.browser}</div>}
+                  {req.reason && <div style={{ gridColumn:"1/-1" }}><span style={{ color:"var(--muted)", fontWeight:600 }}>Reason: </span>{req.reason}</div>}
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button className="btn btn-primary btn-sm" style={{ background:"var(--green)", borderColor:"var(--green)", flex:1 }}
+                  onClick={() => handleApproveDevice(req.userId, req.fingerprint)}>
+                  ✓ Approve — Replace Trusted Device
+                </button>
+                <button className="btn btn-ghost btn-sm" style={{ color:"var(--red)" }}
+                  onClick={() => handleRejectDevice(req.userId, req.fingerprint)}>
+                  ✗ Reject
+                </button>
+                <button className="btn btn-ghost btn-sm" style={{ color:"var(--amber)", fontSize:"0.78rem" }}
+                  onClick={() => handleResetDevice(req.userId)} title="Reset device policy — student can login once from any device">
+                  🔓 Reset
+                </button>
+              </div>
+            </div>
           ))}
         </div>
       ) : (
