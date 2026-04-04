@@ -10,6 +10,10 @@ const protect = async (req, res, next) => {
     if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
       token = req.headers.authorization.split(" ")[1];
     }
+    // Allow token via query string for SSE EventSource (cannot set headers)
+    if (!token && req.query.token) {
+      token = req.query.token;
+    }
 
     if (!token) {
       return res.status(401).json({ success: false, message: "Not authorized. No token provided." });
