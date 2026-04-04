@@ -1,4 +1,3 @@
-
 // ── @desc  One-time admin setup (only works if no admin exists yet) ──────────
 // ── @route POST /api/admin/setup
 // ── @access Public (but locked once admin exists)
@@ -231,4 +230,104 @@ const resetUserPassword = async (req, res) => {
   }
 };
 
-module.exports = { setupAdmin, resetUserPassword, getStats, getUsers, getUser, deleteUser, verifyUser, unverifyUser, getSessions, stopSession, deleteSession };
+
+// ── @desc  Get all pending device requests ──────────────────────────────────
+// ── @route GET /api/admin/device-requests
+const getDeviceRequests = async (req, res) => {
+  try {
+    const users = await User.find({
+      role: "student",
+      "pendingDevices.0": { $exists: true },
+    }).select("name email grade section pendingDevices trustedDevice");
+    const requests = [];
+    users.forEach(u => {
+      (u.pendingDevices || []).forEach(d => {
+        requests.push({
+          userId: u._id,
+          userName: u.name,
+          userEmail: u.email,
+          grade: u.grade,
+          section: u.section,
+          trustedDevice: u.trustedDevice,
+          ...d.toObject(),
+        });
+      });
+    });
+    requests.sort((a, b) => new Date(b.requestedAt) - new Date(a.requestedAt));
+    res.json({ success: true, requests });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to fetch device requests." });
+  }
+};
+
+// ── @desc  Approve a pending device request ──────────────────────────────────
+// ── @route PATCH /api/admin/device-requests/:userId/approve
+const approveDevice = async (req, res) => {
+  try {
+    const { fingerprint } = req.body;
+    const user = await User.findById(req.params.userId);
+    if (!user) return res.status(404).json({ success: false, message: "User not found." });
+    const pending = (user.pendingDevices || []).find(d => d.fingerprint === fingerprint);
+    if (!pending) return res.status(404).json({ success: false, message: "Pending device not found." });
+    // Replace trusted device with the approved one
+    user.trustedDevice = {
+      fingerprint: pending.fingerprint,
+      browser: pending.browser,
+      os: pending.os,
+      registeredAt: new Date(),
+      label: pending.label || "Approved Device",
+    };
+    // Remove from pending
+    user.pendingDevices = user.pendingDevices.filter(d => d.fingerprint !== fingerprint);
+    await user.save({ validateBeforeSave: false });
+    res.json({ success: true, message: `New device approved for ${user.name}.` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to approve device." });
+  }
+};
+
+// ── @desc  Reject a pending device request ───────────────────────────────────
+// ── @route DELETE /api/admin/device-requests/:userId/reject
+const rejectDevice = async (req, res) => {
+  try {
+    const { fingerprint } = req.body;
+    const user = await User.findById(req.params.userId);
+    if (!user) return res.status(404).json({ success: false, message: "User not found." });
+    user.pendingDevices = (user.pendingDevices || []).filter(d => d.fingerprint !== fingerprint);
+    await user.save({ validateBeforeSave: false });
+    res.json({ success: true, message: `Device request rejected.` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to reject device." });
+  }
+};
+
+// ── @desc  Reset trusted device (unlock all devices for a user) ──────────────
+// ── @route PATCH /api/admin/users/:id/reset-device
+const resetTrustedDevice = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ success: false, message: "User not found." });
+    user.trustedDevice = undefined;
+    user.pendingDevices = [];
+    await user.save({ validateBeforeSave: false });
+    res.json({ success: true, message: `Device policy reset for ${user.name}. Next login registers a new trusted device.` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to reset device." });
+  }
+};
+
+// ── @desc  Toggle device policy on/off for a user ───────────────────────────
+// ── @route PATCH /api/admin/users/:id/toggle-device-policy
+const toggleDevicePolicy = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ success: false, message: "User not found." });
+    user.devicePolicyEnabled = !user.devicePolicyEnabled;
+    await user.save({ validateBeforeSave: false });
+    res.json({ success: true, message: `Device policy ${user.devicePolicyEnabled ? "enabled" : "disabled"} for ${user.name}.`, enabled: user.devicePolicyEnabled });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to toggle device policy." });
+  }
+};
+
+module.exports = { setupAdmin, getDeviceRequests, approveDevice, rejectDevice, resetTrustedDevice, toggleDevicePolicy, resetUserPassword, getStats, getUsers, getUser, deleteUser, verifyUser, unverifyUser, getSessions, stopSession, deleteSession };
