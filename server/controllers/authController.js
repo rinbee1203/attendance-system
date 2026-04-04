@@ -132,9 +132,25 @@ const register = async (req, res) => {
       password,
       role: role || "student",
       studentId,
-      grade: role === "student" ? grade : undefined,     // ← NEW (only for students)
-      section: role === "student" ? section : undefined, // ← NEW (only for students)
+      grade: role === "student" ? grade : undefined,
+      section: role === "student" ? section : undefined,
     });
+
+    // Register the device fingerprint as trusted (students only)
+    if ((role || "student") === "student") {
+      const regFp = req.headers["x-device-fingerprint"] || "";
+      if (regFp) {
+        const { browser, browserVersion, os } = parseUserAgent(req.headers["user-agent"] || "");
+        user.trustedDevice = {
+          fingerprint: crypto.createHash("sha256").update(regFp).digest("hex"),
+          browser: `${browser} ${browserVersion}`,
+          os,
+          registeredAt: new Date(),
+          label: "Primary Device",
+        };
+        await user.save({ validateBeforeSave: false });
+      }
+    }
 
     // Send verification email (non-blocking — don't fail registration if email fails)
     try {
@@ -258,6 +274,46 @@ const login = async (req, res) => {
 
     // ── Login alert email ──
     sendLoginAlert(user, ip, `${parsed.browser} ${parsed.browserVersion}`, `${parsed.os} · ${parsed.device}`);
+
+    // ── One-device policy (students only) ──────────────────────────────────
+    if (user.role === "student" && user.devicePolicyEnabled !== false) {
+      const deviceFingerprint = req.headers["x-device-fingerprint"] || "";
+      const hashedFp = deviceFingerprint
+        ? crypto.createHash("sha256").update(deviceFingerprint).digest("hex")
+        : null;
+
+      if (!user.trustedDevice || !user.trustedDevice.fingerprint) {
+        // No trusted device yet — register this one automatically (first login)
+        user.trustedDevice = {
+          fingerprint: hashedFp || "unset",
+          browser: `${parsed.browser} ${parsed.browserVersion}`,
+          os: parsed.os,
+          registeredAt: new Date(),
+          label: "Primary Device",
+        };
+      } else if (hashedFp && hashedFp !== user.trustedDevice.fingerprint) {
+        // Unknown device — check if it's already in pendingDevices
+        const alreadyPending = (user.pendingDevices || []).some(d => d.fingerprint === hashedFp);
+        if (!alreadyPending) {
+          user.pendingDevices = user.pendingDevices || [];
+          user.pendingDevices.push({
+            fingerprint: hashedFp,
+            browser: `${parsed.browser} ${parsed.browserVersion}`,
+            os: parsed.os,
+            ip,
+            requestedAt: new Date(),
+            label: `${parsed.os} · ${parsed.browser}`,
+            reason: "",
+          });
+          await user.save({ validateBeforeSave: false });
+        }
+        return res.status(403).json({
+          success: false,
+          deviceBlocked: true,
+          message: "This device is not registered for your account. A request has been sent to the administrator for approval.",
+        });
+      }
+    }
 
     // ── Session tracking (max 5 concurrent sessions) ──
     user.activeSessions = user.activeSessions || [];
@@ -485,4 +541,41 @@ const resetPassword = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getMe, updateProfile, forgotPassword, resetPassword };
+
+// @desc    Request new device registration (from blocked device screen)
+// @route   POST /api/auth/request-device
+// @access  Public (unauth — uses email to find user)
+const requestDeviceChange = async (req, res) => {
+  try {
+    const { reason, fingerprint, email } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: "Email required." });
+    const user = await User.findOne({ email, role: "student" });
+    if (!user) return res.status(404).json({ success: false, message: "Student account not found." });
+    const ua = req.headers["user-agent"] || "";
+    const parsed = parseUserAgent(ua);
+    const ip = getClientIP(req);
+    const hashedFp = fingerprint
+      ? require("crypto").createHash("sha256").update(fingerprint).digest("hex")
+      : null;
+    if (!hashedFp) return res.status(400).json({ success: false, message: "Device fingerprint required." });
+    const alreadyPending = (user.pendingDevices || []).some(d => d.fingerprint === hashedFp);
+    if (!alreadyPending) {
+      user.pendingDevices = user.pendingDevices || [];
+      user.pendingDevices.push({
+        fingerprint: hashedFp,
+        browser: `${parsed.browser} ${parsed.browserVersion}`,
+        os: parsed.os, ip, requestedAt: new Date(),
+        label: `${parsed.os} · ${parsed.browser}`,
+        reason: reason || "No reason provided",
+      });
+      await user.save({ validateBeforeSave: false });
+    }
+    res.json({ success: true, message: "Device request submitted. Please wait for administrator approval." });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to submit device request." });
+  }
+};
+
+
+module.exports = {
+  requestDeviceChange, register, login, getMe, updateProfile, forgotPassword, resetPassword };
