@@ -96,6 +96,36 @@ const checkIn = async (req, res) => {
     });
 
     await attendance.populate("session", "subject room");
+    await attendance.populate("student", "name email studentId grade section profilePicture");
+
+    // ── Broadcast real-time update via SSE to all teachers watching this session ──
+    const sseClients = req.app.locals.sseClients;
+    const sessionKey = session._id.toString();
+    if (sseClients && sseClients.has(sessionKey)) {
+      const payload = JSON.stringify({
+        type: "new_attendance",
+        attendance: {
+          _id: attendance._id,
+          status,
+          timestamp: attendance.timestamp,
+          attendanceDate: attendance.attendanceDate,
+          student: {
+            _id: req.user._id,
+            name: req.user.name,
+            email: req.user.email,
+            studentId: req.user.studentId,
+            grade: req.user.grade,
+            section: req.user.section,
+            profilePicture: req.user.profilePicture,
+          },
+        },
+      });
+      for (const res_ of sseClients.get(sessionKey)) {
+        try { res_.write(`data: ${payload}
+
+`); } catch(e) {}
+      }
+    }
 
     res.status(201).json({
       success: true,
@@ -166,4 +196,43 @@ const verifyToken = async (req, res) => {
   }
 };
 
-module.exports = { checkIn, getMyAttendance, verifyToken };
+
+// @desc    SSE stream — teacher subscribes to real-time attendance for a session
+// @route   GET /api/attendance/stream/:sessionId
+// @access  Teacher only
+const streamAttendance = async (req, res) => {
+  const { sessionId } = req.params;
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // disable Nginx buffering
+  res.flushHeaders();
+
+  // Register this connection
+  const sseClients = req.app.locals.sseClients;
+  if (!sseClients.has(sessionId)) sseClients.set(sessionId, new Set());
+  sseClients.get(sessionId).add(res);
+
+  // Send initial heartbeat
+  res.write(`data: ${JSON.stringify({ type: "connected", sessionId })}
+
+`);
+
+  // Keepalive ping every 25 seconds (prevents proxy timeouts)
+  const ping = setInterval(() => {
+    try { res.write(`: ping
+
+`); } catch(e) {}
+  }, 25000);
+
+  // Cleanup on disconnect
+  req.on("close", () => {
+    clearInterval(ping);
+    if (sseClients.has(sessionId)) {
+      sseClients.get(sessionId).delete(res);
+      if (sseClients.get(sessionId).size === 0) sseClients.delete(sessionId);
+    }
+  });
+};
+
+module.exports = { checkIn, getMyAttendance, verifyToken, streamAttendance };
