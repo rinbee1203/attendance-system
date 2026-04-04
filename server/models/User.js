@@ -66,6 +66,25 @@ const userSchema = new mongoose.Schema(
     passwordChangedAt:  { type: Date, default: null },
     lastKnownIP:        { type: String, default: null },   // for suspicious login detection
 
+    // One-device policy (students only)
+    trustedDevice: {
+      fingerprint:  { type: String, default: null },  // hashed device fingerprint
+      browser:      { type: String },
+      os:           { type: String },
+      registeredAt: { type: Date },
+      label:        { type: String, default: "Primary Device" },
+    },
+    pendingDevices: [{  // devices awaiting admin approval
+      fingerprint:  { type: String },
+      browser:      { type: String },
+      os:           { type: String },
+      ip:           { type: String },
+      requestedAt:  { type: Date, default: Date.now },
+      label:        { type: String },
+      reason:       { type: String },  // e.g. "Lost phone", "New device"
+    }],
+    devicePolicyEnabled: { type: Boolean, default: true }, // admin can disable per-user
+
     // Teacher professional info
     school:        { type: String, trim: true },
     department:    { type: String, trim: true },
