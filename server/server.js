@@ -7,6 +7,11 @@ dotenv.config();
 
 const app = express();
 
+// ── SSE client registry for real-time attendance ──────────────────────────
+// Map: sessionId -> Set of response objects (teacher browser connections)
+const sseClients = new Map();
+app.locals.sseClients = sseClients;
+
 // Middleware
 app.use(cors({
   origin: "*",
