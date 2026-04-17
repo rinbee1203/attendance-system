@@ -3619,7 +3619,8 @@ function RosterManagerModal({ session, onClose, onSaved }) {
     setCsvError("");
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const lines = ev.target.result.split("\n").map(l=>l.trim()).filter(Boolean);
+      const lines = ev.target.result.split("
+").map(l=>l.trim()).filter(Boolean);
       const headers = lines[0].toLowerCase().split(",").map(h=>h.trim());
       const emailIdx = headers.indexOf("email");
       const idIdx    = headers.indexOf("student id") !== -1 ? headers.indexOf("student id") : headers.indexOf("studentid");
