@@ -1,3 +1,146 @@
+// @desc    Auto-mark absent — called when teacher stops a session
+//          Marks all rostered students who did NOT check in as absent
+// @route   POST /api/attendance/mark-absences/:sessionId
+// @access  Teacher only
+const markAbsences = async (req, res) => {
+  try {
+    const Session = require("../models/Session");
+    const session = await Session.findOne({ _id: req.params.sessionId, teacher: req.user._id });
+    if (!session) return res.status(404).json({ success: false, message: "Session not found." });
+
+    if (!session.roster || session.roster.length === 0) {
+      return res.json({ success: true, marked: 0, message: "No roster set for this session." });
+    }
+
+    const now = new Date();
+    const manilaDate = new Date(now.getTime() + 8*60*60*1000).toISOString().split("T")[0];
+
+    // Find who already checked in
+    const checkedIn = await Attendance.find({ session: session._id, attendanceDate: manilaDate })
+      .select("student");
+    const checkedInIds = new Set(checkedIn.map(a => a.student.toString()));
+
+    // Mark the rest as absent
+    const absent = session.roster.filter(sid => !checkedInIds.has(sid.toString()));
+    let marked = 0;
+    for (const studentId of absent) {
+      try {
+        await Attendance.create({
+          student: studentId,
+          session: session._id,
+          status: "absent",
+          attendanceDate: manilaDate,
+          timestamp: now,
+          markedAbsentBy: req.user._id,
+          autoMarked: true,
+        });
+        marked++;
+      } catch(e) {
+        if (e.code !== 11000) console.error("Mark absent error:", e.message);
+      }
+    }
+
+    res.json({ success: true, marked, total: session.roster.length,
+      message: `${marked} student${marked!==1?"s":""} marked absent.` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to mark absences." });
+  }
+};
+
+// @desc    Override a student's attendance status (teacher correction)
+// @route   PATCH /api/attendance/:id/override
+// @access  Teacher only
+const overrideAttendance = async (req, res) => {
+  try {
+    const { status, reason } = req.body;
+    if (!["present","late","absent","excused"].includes(status))
+      return res.status(400).json({ success: false, message: "Invalid status." });
+
+    const record = await Attendance.findById(req.params.id).populate("session", "teacher");
+    if (!record) return res.status(404).json({ success: false, message: "Record not found." });
+    if (record.session.teacher.toString() !== req.user._id.toString())
+      return res.status(403).json({ success: false, message: "Not authorized." });
+
+    record.status = status;
+    record.absentReason = reason || record.absentReason;
+    record.overriddenBy = req.user._id;
+    record.overriddenAt = new Date();
+    await record.save();
+
+    res.json({ success: true, message: `Status updated to ${status}.`, record });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to override." });
+  }
+};
+
+// @desc    Get absence summary per student per subject
+// @route   GET /api/attendance/absence-summary/:sessionId
+// @access  Teacher only
+const getAbsenceSummary = async (req, res) => {
+  try {
+    const Session = require("../models/Session");
+    const session = await Session.findOne({ _id: req.params.sessionId, teacher: req.user._id });
+    if (!session) return res.status(404).json({ success: false, message: "Session not found." });
+
+    // Get all sessions with the same subject by this teacher
+    const relatedSessions = await Session.find({ teacher: req.user._id, subject: session.subject }).select("_id");
+    const sessionIds = relatedSessions.map(s => s._id);
+
+    // Aggregate absences per student
+    const summary = await Attendance.aggregate([
+      { $match: { session: { $in: sessionIds } } },
+      { $group: {
+        _id: "$student",
+        total:   { $sum: 1 },
+        present: { $sum: { $cond: [{ $eq: ["$status","present"] }, 1, 0] } },
+        late:    { $sum: { $cond: [{ $eq: ["$status","late"] }, 1, 0] } },
+        absent:  { $sum: { $cond: [{ $eq: ["$status","absent"] }, 1, 0] } },
+        excused: { $sum: { $cond: [{ $eq: ["$status","excused"] }, 1, 0] } },
+        lastSeen:{ $max: { $cond: [{ $in: ["$status",["present","late"]] }, "$timestamp", null] } },
+      }},
+      { $lookup: { from: "users", localField: "_id", foreignField: "_id", as: "student" } },
+      { $unwind: "$student" },
+      { $project: {
+        name: "$student.name", email: "$student.email",
+        grade: "$student.grade", section: "$student.section",
+        studentId: "$student.studentId", profilePicture: "$student.profilePicture",
+        total: 1, present: 1, late: 1, absent: 1, excused: 1, lastSeen: 1,
+      }},
+      { $sort: { absent: -1 } },
+    ]);
+
+    res.json({ success: true, summary, subject: session.subject,
+      absenceLimit: session.absenceLimit, absenceLimitEnabled: session.absenceLimitEnabled });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to fetch summary." });
+  }
+};
+
+// @desc    Manage session roster (add/remove students)
+// @route   PATCH /api/attendance/roster/:sessionId
+// @access  Teacher only
+const updateRoster = async (req, res) => {
+  try {
+    const Session = require("../models/Session");
+    const { add = [], remove = [], replace } = req.body;
+    const session = await Session.findOne({ _id: req.params.sessionId, teacher: req.user._id });
+    if (!session) return res.status(404).json({ success: false, message: "Session not found." });
+
+    if (replace) {
+      session.roster = replace;
+    } else {
+      const current = new Set(session.roster.map(id => id.toString()));
+      add.forEach(id => current.add(id));
+      remove.forEach(id => current.delete(id));
+      session.roster = Array.from(current);
+    }
+    await session.save();
+    res.json({ success: true, message: "Roster updated.", count: session.roster.length });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to update roster." });
+  }
+};
+
 const Session = require("../models/Session");
 const Attendance = require("../models/Attendance");
 
@@ -40,6 +183,15 @@ const checkIn = async (req, res) => {
     });
     if (existing) {
       return res.status(400).json({ success: false, message: "You have already marked attendance for today's session." });
+    }
+
+    // ── Email verification required to scan QR ──────────────────────────────
+    if (!req.user.isVerified) {
+      return res.status(403).json({
+        success: false,
+        emailUnverified: true,
+        message: "You must verify your email address before marking attendance. Please check your inbox for the verification link.",
+      });
     }
 
     // ── Grade / Section filter ────────────────────────────────────────────────
@@ -235,4 +387,4 @@ const streamAttendance = async (req, res) => {
   });
 };
 
-module.exports = { checkIn, getMyAttendance, verifyToken, streamAttendance };
+module.exports = { checkIn, getMyAttendance, verifyToken, streamAttendance, markAbsences, overrideAttendance, getAbsenceSummary, updateRoster };
