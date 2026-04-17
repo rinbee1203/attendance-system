@@ -13,8 +13,15 @@ const sessionSchema = new mongoose.Schema(
     description:      { type: String, trim: true },
     activatedAt:      { type: Date, default: null },  // resets every time teacher starts session
     lateAfterMinutes: { type: Number, default: 15 },  // configurable grace period (minutes)
-    allowedGrades:   { type: [String], default: [] }, // empty = all grades allowed
-    allowedSections: { type: [String], default: [] }, // empty = all sections allowed
+    scheduledStart:   { type: Date, default: null },  // when teacher plans to start (display only)
+    scheduledEnd:     { type: Date, default: null },  // when teacher plans to end (display only)
+    allowedGrades:   { type: [String], default: [] },
+    allowedSections: { type: [String], default: [] },
+    // Class roster — enrolled students for this session/subject
+    roster: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    // Absence limit — warn when student exceeds this many absences per subject
+    absenceLimit:    { type: Number, default: 3 },
+    absenceLimitEnabled: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
