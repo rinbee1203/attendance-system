@@ -11,7 +11,7 @@ const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
 // @access  Teacher only
 const createSession = async (req, res) => {
   try {
-    const { subject, room, description, expiresAt } = req.body;
+    const { subject, room, description, expiresAt, scheduledStart, scheduledEnd } = req.body;
 
     if (!subject) {
       return res.status(400).json({ success: false, message: "Subject is required." });
@@ -25,7 +25,9 @@ const createSession = async (req, res) => {
       teacher: req.user._id,
       room,
       description,
-      expiresAt: expiry,   // 210-day expiry — never overwritten by Stop
+      expiresAt: expiry,
+      scheduledStart: scheduledStart ? new Date(scheduledStart) : null,
+      scheduledEnd:   scheduledEnd   ? new Date(scheduledEnd)   : null,
     });
 
     res.status(201).json({ success: true, message: "Session created successfully!", session });
@@ -123,12 +125,32 @@ const stopSession = async (req, res) => {
     }
 
     session.isActive = false;
-    session.endTime = new Date();   // actual stop time
+    session.endTime = new Date();
     session.qrToken = undefined;
     session.qrExpiresAt = undefined;
     await session.save();
 
-    res.json({ success: true, message: "Session stopped.", session });
+    // Auto-mark absent for rostered students who didn't check in
+    let autoMarked = 0;
+    if (session.roster && session.roster.length > 0) {
+      const Attendance = require("../models/Attendance");
+      const manilaDate = new Date(new Date().getTime() + 8*60*60*1000).toISOString().split("T")[0];
+      const checkedIn = await Attendance.find({ session: session._id, attendanceDate: manilaDate, status: { $in: ["present","late"] } }).select("student");
+      const checkedInIds = new Set(checkedIn.map(a => a.student.toString()));
+      const absent = session.roster.filter(sid => !checkedInIds.has(sid.toString()));
+      for (const studentId of absent) {
+        try {
+          await Attendance.create({
+            student: studentId, session: session._id,
+            status: "absent", attendanceDate: manilaDate,
+            timestamp: new Date(), markedAbsentBy: req.user._id, autoMarked: true,
+          });
+          autoMarked++;
+        } catch(e) { if (e.code !== 11000) {} }
+      }
+    }
+
+    res.json({ success: true, message: `Session stopped. ${autoMarked > 0 ? `${autoMarked} students auto-marked absent.` : ""}`, session, autoMarked });
   } catch (error) {
     res.status(500).json({ success: false, message: "Failed to stop session." });
   }
@@ -236,7 +258,7 @@ const updateSession = async (req, res) => {
     if (session.teacher.toString() !== req.user._id.toString())
       return res.status(403).json({ success: false, message: "Not authorized." });
 
-    const allowed = ["lateAfterMinutes", "room", "description", "subject", "allowedGrades", "allowedSections"];
+    const allowed = ["lateAfterMinutes", "room", "description", "subject", "allowedGrades", "allowedSections", "scheduledStart", "scheduledEnd", "absenceLimit", "absenceLimitEnabled"];
     allowed.forEach(field => {
       if (req.body[field] !== undefined) session[field] = req.body[field];
     });
