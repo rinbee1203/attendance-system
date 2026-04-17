@@ -61,6 +61,9 @@ const userSchema = new mongoose.Schema(
       lastSeenAt: { type: Date, default: Date.now },
     }],
 
+    // Announcements — track which ones this user has read
+    readAnnouncements: [{ type: String }], // array of announcement IDs
+
     // Security flags
     mustChangePassword: { type: Boolean, default: false }, // force change on next login
     passwordChangedAt:  { type: Date, default: null },
