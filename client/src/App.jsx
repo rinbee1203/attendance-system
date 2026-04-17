@@ -2779,7 +2779,7 @@ function AttendanceAccordion({ records, onStudentClick }) {
                                     <td>{a.student?.studentId || "—"}</td>
                                     <td>{a.student?.grade || <span style={{ color: "var(--muted)" }}>—</span>}</td>
                                     <td>{a.student?.section || <span style={{ color: "var(--muted)" }}>—</span>}</td>
-                                    <td><span className={`badge badge-${a.status}`}>{a.status === "present" ? "✓ Present" : "⏰ Late"}</span></td>
+                                    <td><span className={`badge badge-${a.status}`}>{a.status === "present" ? "✓ Present" : status === "late" ? "⏰ Late" : status === "absent" ? "❌ Absent" : "📝 Excused"}</span></td>
                                     <td>{ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Manila" })}</td>
                                   </tr>
                                 );
@@ -3034,8 +3034,10 @@ function TeacherDashboard() {
   const [loadingAttendance, setLoadingAttendance] = useState(false);
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedStudent, setSelectedStudent] = useState(null);
-  const [liveCount, setLiveCount]   = useState(0); // real-time new check-ins since opened
+  const [liveCount, setLiveCount]   = useState(0);
   const sseRef = useRef(null);
+  const [rosterSession, setRosterSession]   = useState(null);
+  const [absenceSession, setAbsenceSession] = useState(null);
   const [editSession, setEditSession]   = useState(null);
 
   const fetchSessions = useCallback(async () => {
@@ -3243,7 +3245,7 @@ function TeacherDashboard() {
                     <div className="history-filters" style={{ margin: 0 }}>
                       {["all", "present", "late"].map((f) => (
                         <span key={f} className={`filter-chip ${filterStatus === f ? "active" : ""}`} onClick={() => setFilterStatus(f)}>
-                          {f === "all" ? "All" : f === "present" ? "✓ Present" : "⏰ Late"}
+                          {f === "all" ? "All" : f === "present" ? "✓ Present" : status === "late" ? "⏰ Late" : status === "absent" ? "❌ Absent" : "📝 Excused"}
                           {f === "all" ? ` (${attendance.length})` : f === "present" ? ` (${presentCount})` : ` (${lateCount})`}
                         </span>
                       ))}
@@ -3372,6 +3374,8 @@ function TeacherDashboard() {
                       )}
                       <button className="btn btn-ghost btn-sm" onClick={() => viewDetails(session)}>View List</button>
                       <button className="btn btn-ghost btn-sm" onClick={() => setEditSession(session)} title="Edit session settings" style={{ padding:"6px 10px" }}>✏️</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setRosterSession(session)} title="Manage class roster" style={{ padding:"6px 10px" }}>📋</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setAbsenceSession(session)} title="Absence tracker" style={{ padding:"6px 10px", color:"var(--red)" }}>📊</button>
                       <button className="btn btn-danger btn-sm" onClick={() => handleDelete(session._id, session.subject)} title="Delete session and all attendance records">🗑</button>
                     </div>
                   </div>
@@ -3389,6 +3393,19 @@ function TeacherDashboard() {
         />
       )}
 
+      {rosterSession && (
+        <RosterManagerModal
+          session={rosterSession}
+          onClose={() => setRosterSession(null)}
+          onSaved={() => { setRosterSession(null); loadSessions(); }}
+        />
+      )}
+      {absenceSession && (
+        <AbsenceTrackerModal
+          session={absenceSession}
+          onClose={() => setAbsenceSession(null)}
+        />
+      )}
       {editSession && (
         <EditSessionModal
           session={editSession}
@@ -3414,6 +3431,33 @@ function TeacherDashboard() {
 }
 
 // ─── STUDENT CHECK-IN ─────────────────────────────────────────────────────────
+// ─── RESEND VERIFICATION BUTTON ──────────────────────────────────────────────
+function ResendVerificationButton() {
+  const [sent, setSent]     = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const handleResend = async () => {
+    setLoading(true);
+    try {
+      await api.request("POST", "/security/send-verification");
+      setSent(true);
+    } catch(e) {}
+    finally { setLoading(false); }
+  };
+
+  if (sent) return (
+    <div style={{ padding:"10px 16px", background:"var(--green-lt)", borderRadius:"var(--radius-sm)", color:"var(--green)", fontWeight:600, fontSize:"0.85rem" }}>
+      ✓ Verification email sent! Check your inbox.
+    </div>
+  );
+
+  return (
+    <button className="btn btn-primary btn-sm" onClick={handleResend} disabled={loading}>
+      {loading ? <Spinner size={14}/> : "📧 Resend Verification Email"}
+    </button>
+  );
+}
+
 function CheckInPage({ token }) {
   const [sessionInfo, setSessionInfo] = useState(null);
   const [status, setStatus] = useState("verifying");
@@ -3495,7 +3539,22 @@ function CheckInPage({ token }) {
         )}
         {status === "error" && (
           <div className="error-card">
-            {message?.includes("restricted") || message?.includes("grade") || message?.includes("section") || message?.includes("Grade") || message?.includes("Section") ? (
+            {message?.includes("verify your email") || message?.includes("emailUnverified") ? (
+              <>
+                <span className="checkin-icon">✉️</span>
+                <h2 className="checkin-title" style={{ color:"var(--amber)" }}>Email Not Verified</h2>
+                <p style={{ color:"var(--text-dim)", fontSize:"0.9rem", lineHeight:1.6, marginBottom:16 }}>
+                  You need to verify your email address before you can mark attendance.
+                  Please check your inbox for the verification link.
+                </p>
+                {user && (
+                  <div style={{ marginBottom:16, padding:"10px 14px", background:"var(--surface2)", borderRadius:"var(--radius-sm)", fontSize:"0.83rem", color:"var(--ink3)" }}>
+                    Verification sent to: <strong>{user.email}</strong>
+                  </div>
+                )}
+                <ResendVerificationButton />
+              </>
+            ) : message?.includes("restricted") || message?.includes("grade") || message?.includes("section") || message?.includes("Grade") || message?.includes("Section") ? (
               <>
                 <span className="checkin-icon">🔒</span>
                 <h2 className="checkin-title" style={{ color:"var(--amber)" }}>Access Restricted</h2>
@@ -3528,6 +3587,331 @@ function CheckInPage({ token }) {
 }
 
 // ─── STUDENT DASHBOARD ────────────────────────────────────────────────────────
+// ─── ROSTER MANAGER MODAL ────────────────────────────────────────────────────
+function RosterManagerModal({ session, onClose, onSaved }) {
+  const [students, setStudents]   = useState([]);
+  const [roster, setRoster]       = useState(new Set((session.roster||[]).map(r=>r._id||r)));
+  const [search, setSearch]       = useState("");
+  const [loading, setLoading]     = useState(true);
+  const [saving, setSaving]       = useState(false);
+  const [csvError, setCsvError]   = useState("");
+  const [absLimit, setAbsLimit]   = useState(session.absenceLimit||3);
+  const [absEnabled, setAbsEnabled] = useState(session.absenceLimitEnabled||false);
+  const fileRef = useRef(null);
+  useEscKey(onClose);
+
+  useEffect(() => {
+    api.get("/admin/users?role=student&limit=200")
+      .then(d => setStudents(d.users||[]))
+      .catch(()=>{})
+      .finally(()=>setLoading(false));
+  }, []);
+
+  const toggle = (id) => setRoster(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const handleCSV = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setCsvError("");
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const lines = ev.target.result.split("
+").map(l=>l.trim()).filter(Boolean);
+      const headers = lines[0].toLowerCase().split(",").map(h=>h.trim());
+      const emailIdx = headers.indexOf("email");
+      const idIdx    = headers.indexOf("student id") !== -1 ? headers.indexOf("student id") : headers.indexOf("studentid");
+      if (emailIdx === -1 && idIdx === -1) {
+        setCsvError("CSV must have an 'email' or 'student id' column."); return;
+      }
+      let matched = 0;
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(",").map(c=>c.trim().replace(/^["']|["']$/g,""));
+        const email = emailIdx !== -1 ? cols[emailIdx]?.toLowerCase() : null;
+        const sid   = idIdx !== -1 ? cols[idIdx] : null;
+        const found = students.find(s =>
+          (email && s.email === email) ||
+          (sid && s.studentId === sid)
+        );
+        if (found) { setRoster(prev => new Set([...prev, found._id])); matched++; }
+      }
+      setCsvError(`✓ Matched ${matched} of ${lines.length-1} rows from CSV.`);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.request("PATCH", `/attendance/roster/${session._id}`, {
+        replace: Array.from(roster),
+      });
+      await api.request("PATCH", `/sessions/${session._id}`, {
+        absenceLimit: absLimit, absenceLimitEnabled: absEnabled,
+      });
+      onSaved?.();
+      onClose();
+    } catch(e) { alert(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const filtered = students.filter(s =>
+    !search || s.name.toLowerCase().includes(search.toLowerCase()) ||
+    s.email.toLowerCase().includes(search.toLowerCase()) ||
+    (s.studentId||"").includes(search) ||
+    (s.grade||"").toLowerCase().includes(search.toLowerCase()) ||
+    (s.section||"").toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" style={{ maxWidth:560, width:"96vw" }} onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="modal-title">📋 Manage Class Roster — {session.subject}</h2>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body" style={{ display:"flex", flexDirection:"column", gap:14 }}>
+
+          {/* Absence limit settings */}
+          <div style={{ padding:"12px 14px", background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)", display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
+            <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:"0.83rem", cursor:"pointer" }}>
+              <input type="checkbox" checked={absEnabled} onChange={e=>setAbsEnabled(e.target.checked)} style={{ accentColor:"var(--accent)" }}/>
+              <span style={{ fontWeight:600, color:"var(--ink)" }}>Enable absence limit</span>
+            </label>
+            {absEnabled && (
+              <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:"0.83rem" }}>
+                <span style={{ color:"var(--muted)" }}>Warn after</span>
+                <input type="number" min={1} max={20} value={absLimit} onChange={e=>setAbsLimit(parseInt(e.target.value)||3)}
+                  style={{ width:52, padding:"4px 8px", border:"1px solid var(--border)", borderRadius:6, background:"var(--surface)", color:"var(--ink)", fontSize:"0.85rem", textAlign:"center" }}/>
+                <span style={{ color:"var(--muted)" }}>absences</span>
+              </div>
+            )}
+          </div>
+
+          {/* CSV Upload */}
+          <div style={{ padding:"12px 14px", background:"var(--accent-lt)", borderRadius:"var(--radius-sm)", border:"1px solid var(--accent)" }}>
+            <div style={{ fontWeight:700, fontSize:"0.83rem", color:"var(--accent)", marginBottom:6 }}>📁 Batch Import via CSV</div>
+            <div style={{ fontSize:"0.77rem", color:"var(--muted)", marginBottom:8 }}>CSV must have an <code>email</code> or <code>student id</code> column. First row = headers.</div>
+            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+              <button className="btn btn-ghost btn-sm" onClick={()=>fileRef.current?.click()}>📂 Choose CSV File</button>
+              <input ref={fileRef} type="file" accept=".csv,.txt" style={{ display:"none" }} onChange={handleCSV}/>
+              {csvError && <span style={{ fontSize:"0.78rem", color: csvError.startsWith("✓") ? "var(--green)" : "var(--red)", fontWeight:600 }}>{csvError}</span>}
+            </div>
+          </div>
+
+          {/* Stats */}
+          <div style={{ display:"flex", gap:10 }}>
+            <div style={{ flex:1, padding:"10px 14px", background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)", textAlign:"center" }}>
+              <div style={{ fontSize:"1.4rem", fontWeight:800, color:"var(--accent)" }}>{roster.size}</div>
+              <div style={{ fontSize:"0.72rem", color:"var(--muted)", fontWeight:700, textTransform:"uppercase" }}>In Roster</div>
+            </div>
+            <div style={{ flex:1, padding:"10px 14px", background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)", textAlign:"center" }}>
+              <div style={{ fontSize:"1.4rem", fontWeight:800, color:"var(--ink3)" }}>{students.length - roster.size}</div>
+              <div style={{ fontSize:"0.72rem", color:"var(--muted)", fontWeight:700, textTransform:"uppercase" }}>Not Enrolled</div>
+            </div>
+          </div>
+
+          {/* Search */}
+          <input className="form-input" placeholder="Search students by name, email, ID, grade..."
+            value={search} onChange={e=>setSearch(e.target.value)} style={{ fontSize:"0.85rem" }}/>
+
+          {/* Select/Deselect all filtered */}
+          <div style={{ display:"flex", gap:8 }}>
+            <button className="btn btn-ghost btn-sm" onClick={()=>filtered.forEach(s=>setRoster(prev=>new Set([...prev,s._id])))}>✓ Select all filtered</button>
+            <button className="btn btn-ghost btn-sm" onClick={()=>filtered.forEach(s=>setRoster(prev=>{const n=new Set(prev);n.delete(s._id);return n;}))}>✗ Deselect all filtered</button>
+            <button className="btn btn-ghost btn-sm" onClick={()=>setRoster(new Set())} style={{ color:"var(--red)", marginLeft:"auto" }}>Clear all</button>
+          </div>
+
+          {/* Student list */}
+          {loading ? <div style={{ textAlign:"center", padding:"20px" }}><Spinner size={22}/></div> : (
+            <div style={{ maxHeight:280, overflowY:"auto", display:"flex", flexDirection:"column", gap:6 }}>
+              {filtered.length === 0 ? (
+                <div style={{ textAlign:"center", padding:"20px", color:"var(--muted)", fontSize:"0.85rem" }}>No students found.</div>
+              ) : filtered.map(s => {
+                const inRoster = roster.has(s._id);
+                return (
+                  <div key={s._id} onClick={()=>toggle(s._id)} style={{
+                    display:"flex", alignItems:"center", gap:10, padding:"8px 12px",
+                    borderRadius:"var(--radius-sm)", cursor:"pointer",
+                    border:`1px solid ${inRoster ? "var(--accent)" : "var(--border)"}`,
+                    background: inRoster ? "var(--accent-lt)" : "var(--surface2)",
+                    transition:"all 0.1s",
+                  }}>
+                    <input type="checkbox" checked={inRoster} onChange={()=>{}} style={{ accentColor:"var(--accent)", pointerEvents:"none" }}/>
+                    <AvatarCircle name={s.name} picture={s.profilePicture} size={28} radius={14} fontSize="0.7rem"/>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:600, fontSize:"0.85rem", color:"var(--ink)" }}>{s.name}</div>
+                      <div style={{ fontSize:"0.72rem", color:"var(--muted)" }}>
+                        {s.studentId && <span>{s.studentId} · </span>}
+                        {s.grade} {s.section}
+                      </div>
+                    </div>
+                    {inRoster && <span style={{ fontSize:"0.72rem", fontWeight:700, color:"var(--accent)" }}>✓</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Save */}
+          <div style={{ display:"flex", gap:8, paddingTop:8, borderTop:"1px solid var(--border)" }}>
+            <button className="btn btn-primary" style={{ flex:1 }} onClick={handleSave} disabled={saving}>
+              {saving ? <Spinner size={16}/> : `💾 Save Roster (${roster.size} students)`}
+            </button>
+            <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ABSENCE TRACKER MODAL ────────────────────────────────────────────────────
+function AbsenceTrackerModal({ session, onClose }) {
+  const [summary, setSummary]   = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [overriding, setOverriding] = useState(null); // { recordId, studentName }
+  const [newStatus, setNewStatus]   = useState("present");
+  const [reason, setReason]         = useState("");
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [absenceLimit, setAbsenceLimit] = useState(3);
+  const [absEnabled, setAbsEnabled] = useState(false);
+  const [filterAbs, setFilterAbs] = useState("all");
+  useEscKey(onClose);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const d = await api.get(`/attendance/absence-summary/${session._id}`);
+      setSummary(d.summary||[]);
+      setAbsenceLimit(d.absenceLimit||3);
+      setAbsEnabled(d.absenceLimitEnabled||false);
+    } catch(e) {}
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleMarkAbsences = async () => {
+    try {
+      const d = await api.request("POST", `/attendance/mark-absences/${session._id}`);
+      alert(d.message);
+      load();
+    } catch(e) { alert(e.message); }
+  };
+
+  const handleOverride = async (recordId) => {
+    setSaveLoading(true);
+    try {
+      await api.request("PATCH", `/attendance/${recordId}/override`, { status: newStatus, reason });
+      setOverriding(null); setReason("");
+      load();
+    } catch(e) { alert(e.message); }
+    finally { setSaveLoading(false); }
+  };
+
+  const statusColors = { present:"var(--green)", late:"var(--amber)", absent:"var(--red)", excused:"var(--accent)" };
+  const statusIcons  = { present:"✅", late:"🕐", absent:"❌", excused:"📝" };
+
+  const filtered = summary.filter(s => {
+    if (filterAbs === "at-risk") return absEnabled && s.absent >= absenceLimit;
+    if (filterAbs === "absent")  return s.absent > 0;
+    return true;
+  });
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" style={{ maxWidth:620, width:"96vw" }} onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="modal-title">📊 Absence Tracker — {session.subject}</h2>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body" style={{ display:"flex", flexDirection:"column", gap:14 }}>
+
+          {/* Action bar */}
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            <button className="btn btn-primary btn-sm" onClick={handleMarkAbsences} style={{ background:"var(--red)", borderColor:"var(--red)" }}>
+              ❌ Auto-Mark Absences Now
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={load}>↻ Refresh</button>
+            <div style={{ display:"flex", gap:6, marginLeft:"auto" }}>
+              {[["all","All"],["absent","Has Absences"],["at-risk","⚠ At Risk"]].map(([v,l]) => (
+                <button key={v} className="btn btn-ghost btn-sm" style={{ fontSize:"0.75rem",
+                  background: filterAbs===v ? "var(--accent)" : undefined,
+                  color: filterAbs===v ? "#fff" : undefined,
+                  border: filterAbs===v ? "none" : undefined }}
+                  onClick={()=>setFilterAbs(v)}>{l}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Absence limit info */}
+          {absEnabled && (
+            <div style={{ padding:"8px 12px", background:"var(--amber-lt)", border:"1px solid var(--amber)", borderRadius:"var(--radius-sm)", fontSize:"0.82rem", color:"var(--amber)", fontWeight:600 }}>
+              ⚠ Absence limit is set to {absenceLimit}. Students at or above this limit are flagged at risk.
+            </div>
+          )}
+
+          {/* Summary table */}
+          {loading ? <div style={{ textAlign:"center", padding:"30px" }}><Spinner size={24}/></div>
+          : filtered.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"30px", color:"var(--muted)" }}>
+              {filterAbs === "at-risk" ? "No students are at risk." : filterAbs === "absent" ? "No absences recorded." : "No attendance data yet."}
+            </div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {filtered.map(s => {
+                const atRisk = absEnabled && s.absent >= absenceLimit;
+                const rate = s.total > 0 ? Math.round((s.present+s.late)/s.total*100) : 0;
+                return (
+                  <div key={s._id} style={{
+                    padding:"12px 14px", borderRadius:"var(--radius-sm)",
+                    border:`1px solid ${atRisk ? "var(--red)" : "var(--border)"}`,
+                    background: atRisk ? "var(--red-lt)" : "var(--surface2)",
+                  }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                      <AvatarCircle name={s.name} picture={s.profilePicture} size={34} radius={17} fontSize="0.8rem"/>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontWeight:700, fontSize:"0.87rem", color:"var(--ink)", display:"flex", alignItems:"center", gap:6 }}>
+                          {s.name}
+                          {atRisk && <span style={{ fontSize:"0.7rem", padding:"1px 7px", borderRadius:20, background:"var(--red)", color:"#fff", fontWeight:700 }}>⚠ AT RISK</span>}
+                        </div>
+                        <div style={{ fontSize:"0.73rem", color:"var(--muted)", marginTop:2 }}>
+                          {s.studentId && <span>{s.studentId} · </span>}{s.grade} {s.section}
+                        </div>
+                      </div>
+                      {/* Status pills */}
+                      <div style={{ display:"flex", gap:6, flexWrap:"wrap", justifyContent:"flex-end" }}>
+                        {[["present","✅",s.present],["late","🕐",s.late],["absent","❌",s.absent],["excused","📝",s.excused]].map(([st,icon,count]) => count > 0 && (
+                          <span key={st} style={{ fontSize:"0.72rem", padding:"2px 8px", borderRadius:20, fontWeight:700,
+                            background: st==="absent"?"var(--red-lt)":st==="late"?"var(--amber-lt)":st==="present"?"var(--green-lt)":"var(--accent-lt)",
+                            color: st==="absent"?"var(--red)":st==="late"?"var(--amber)":st==="present"?"var(--green)":"var(--accent)" }}>
+                            {icon} {count}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    {/* Attendance rate bar */}
+                    <div style={{ marginTop:8, display:"flex", alignItems:"center", gap:8 }}>
+                      <div style={{ flex:1, height:5, background:"var(--border)", borderRadius:3, overflow:"hidden" }}>
+                        <div style={{ width:`${rate}%`, height:"100%", background: rate>=80?"var(--green)":rate>=60?"var(--amber)":"var(--red)", borderRadius:3 }}/>
+                      </div>
+                      <span style={{ fontSize:"0.72rem", color:"var(--muted)", minWidth:36, textAlign:"right" }}>{rate}%</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── QR SCANNER (Built-in camera scanner for students) ───────────────────────
 function QRScannerModal({ onClose, onScan }) {
   const videoRef   = useRef(null);
@@ -3761,6 +4145,57 @@ function QRScannerModal({ onClose, onScan }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── ANNOUNCEMENT BANNER ─────────────────────────────────────────────────────
+function AnnouncementBanner() {
+  const { user } = useAuth();
+  const [announcements, setAnnouncements] = useState([]);
+  const [dismissed, setDismissed] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("dismissedAnn") || "[]"); } catch { return []; }
+  });
+
+  useEffect(() => {
+    if (!user) return;
+    api.get(`/admin/announcements?role=${user.role}`)
+      .then(d => setAnnouncements(d.announcements || []))
+      .catch(() => {});
+  }, [user]);
+
+  const dismiss = (id) => {
+    const next = [...dismissed, id];
+    setDismissed(next);
+    localStorage.setItem("dismissedAnn", JSON.stringify(next));
+    api.request("POST", `/admin/announcements/${id}/read`).catch(() => {});
+  };
+
+  const visible = announcements.filter(a => !dismissed.includes(a._id));
+  if (!visible.length) return null;
+
+  const typeStyles = {
+    info:    { bg:"var(--accent-lt)",  border:"var(--accent)", icon:"ℹ️" },
+    warning: { bg:"var(--amber-lt)",   border:"var(--amber)",  icon:"⚠️" },
+    urgent:  { bg:"var(--red-lt)",     border:"var(--red)",    icon:"🚨" },
+    success: { bg:"var(--green-lt)",   border:"var(--green)",  icon:"✅" },
+  };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
+      {visible.map(a => {
+        const s = typeStyles[a.type] || typeStyles.info;
+        return (
+          <div key={a._id} style={{ background:s.bg, borderBottom:`2px solid ${s.border}`, padding:"10px 24px", display:"flex", alignItems:"center", gap:12 }}>
+            <span style={{ fontSize:"1.1rem", flexShrink:0 }}>{s.icon}</span>
+            <div style={{ flex:1 }}>
+              <span style={{ fontWeight:700, fontSize:"0.85rem", color:"var(--ink)" }}>{a.title}: </span>
+              <span style={{ fontSize:"0.85rem", color:"var(--ink3)" }}>{a.message}</span>
+            </div>
+            <button onClick={() => dismiss(a._id)} style={{ background:"none", border:"none", cursor:"pointer", color:"var(--muted)", fontSize:"1rem", flexShrink:0 }}>✕</button>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -4600,6 +5035,121 @@ function SecuritySettingsSection() {
     finally { setDeviceLoading(false); }
   };
 
+  const loadAnalytics = async (days = analyticsDays) => {
+    setAnalyticsLoading(true);
+    try { const d = await api.get(`/admin/analytics?days=${days}`); setAnalytics(d.analytics); }
+    catch(e) { showToast(e.message, "error"); }
+    finally { setAnalyticsLoading(false); }
+  };
+
+  const loadRisk = async () => {
+    setRiskLoading(true);
+    try { const d = await api.get("/admin/risk"); setRiskData(d); }
+    catch(e) { showToast(e.message, "error"); }
+    finally { setRiskLoading(false); }
+  };
+
+  const loadAnomalies = async () => {
+    setAnomalyLoading(true);
+    try { const d = await api.get("/admin/anomalies"); setAnomalies(d); }
+    catch(e) { showToast(e.message, "error"); }
+    finally { setAnomalyLoading(false); }
+  };
+
+  const loadAnnouncements = async () => {
+    setAnnLoading(true);
+    try { const d = await api.get("/admin/announcements"); setAnnouncements(d.announcements || []); }
+    catch(e) { showToast(e.message, "error"); }
+    finally { setAnnLoading(false); }
+  };
+
+  const handleCreateAnn = async () => {
+    if (!annForm.title || !annForm.message) return showToast("Title and message required.", "error");
+    try {
+      await api.request("POST", "/admin/announcements", annForm);
+      showToast("Announcement created ✓");
+      setAnnForm({ title:"", message:"", type:"info", targetRole:"all", pinned:false, expiresAt:"" });
+      loadAnnouncements();
+    } catch(e) { showToast(e.message, "error"); }
+  };
+
+  const handleDeleteAnn = async (id) => {
+    try { await api.request("DELETE", `/admin/announcements/${id}`); showToast("Deleted."); loadAnnouncements(); }
+    catch(e) { showToast(e.message, "error"); }
+  };
+
+  const loadLogs = async () => {
+    setLogsLoading(true);
+    try { const d = await api.get("/admin/logs"); setLogs(d.logs || []); }
+    catch(e) { showToast(e.message, "error"); }
+    finally { setLogsLoading(false); }
+  };
+
+  const loadActivity = async (period = activityPeriod) => {
+    setActivityLoading(true);
+    try { const d = await api.get(`/admin/activity?period=${period}`); setActivity(d.activity || []); }
+    catch(e) { showToast(e.message, "error"); }
+    finally { setActivityLoading(false); }
+  };
+
+  const handleEmailBlast = async () => {
+    if (!emailForm.subject || !emailForm.message) return showToast("Subject and message required.", "error");
+    setEmailSending(true);
+    try {
+      const d = await api.request("POST", "/admin/email-blast", emailForm);
+      showToast(`✓ Email sent to ${d.sent} users`);
+      setEmailForm({ subject:"", message:"", targetRole:"all" });
+    } catch(e) { showToast(e.message, "error"); }
+    finally { setEmailSending(false); }
+  };
+
+  const handleGlobalSearch = async (q) => {
+    setGlobalQ(q);
+    if (q.length < 2) { setGlobalResults(null); return; }
+    setGlobalLoading(true);
+    try { const d = await api.get(`/admin/search?q=${encodeURIComponent(q)}`); setGlobalResults(d); }
+    catch(e) {} finally { setGlobalLoading(false); }
+  };
+
+  const handleBulkVerify = async () => {
+    if (!selectedIds.length) return showToast("Select users first.", "error");
+    try { const d = await api.request("POST", "/admin/users/bulk-verify", { ids: selectedIds }); showToast(d.message); setSelectedIds([]); loadUsers("student"); loadStats(); }
+    catch(e) { showToast(e.message, "error"); }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!selectedIds.length) return showToast("Select users first.", "error");
+    try { const d = await api.request("POST", "/admin/users/bulk-delete", { ids: selectedIds }); showToast(d.message); setSelectedIds([]); loadUsers("student"); loadStats(); }
+    catch(e) { showToast(e.message, "error"); }
+  };
+
+  const handleExportUsers = async () => {
+    try {
+      const d = await api.get("/admin/users/export");
+      const users = d.users || [];
+      // Build XLSX using SheetJS
+      const loadXLSX = () => new Promise((resolve) => {
+        if (window.XLSX) { resolve(window.XLSX); return; }
+        const s = document.createElement("script");
+        s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+        s.onload = () => resolve(window.XLSX);
+        document.head.appendChild(s);
+      });
+      const XLSX = await loadXLSX();
+      const rows = users.map(u => ({
+        Name: u.name, Email: u.email, Role: u.role,
+        "Student ID": u.studentId || "", Grade: u.grade || "", Section: u.section || "",
+        Verified: u.isVerified ? "Yes" : "No", School: u.school || "",
+        Department: u.department || "", Joined: new Date(u.createdAt).toLocaleDateString("en-PH"),
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Users");
+      XLSX.writeFile(wb, `AttendQR_Users_${new Date().toISOString().split("T")[0]}.xlsx`);
+      showToast(`✓ Exported ${users.length} users`);
+    } catch(e) { showToast(e.message, "error"); }
+  };
+
   const handleApproveDevice = async (userId, fingerprint) => {
     try {
       await api.request("PATCH", `/admin/device-requests/${userId}/approve`, { fingerprint });
@@ -5047,14 +5597,16 @@ function AdminBadge({ children, color }) {
   );
 }
 
-function AdminUserRow({ user, onDelete, onVerify, onUnverify, onView }) {
+function AdminUserRow({ user, onDelete, onVerify, onUnverify, onView, selected, onSelect }) {
   const [confirming, setConfirming] = useState(false);
   return (
     <div style={{
       display:"flex", alignItems:"center", gap:12, padding:"12px 16px",
-      borderRadius:"var(--radius-sm)", border:"1px solid var(--border)",
-      background:"var(--surface)", transition:"background 0.1s",
+      borderRadius:"var(--radius-sm)", border:`1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+      background: selected ? "var(--accent-lt)" : "var(--surface)", transition:"background 0.1s",
     }}>
+      <input type="checkbox" checked={selected || false} onChange={() => onSelect && onSelect(user._id)}
+        style={{ width:16, height:16, flexShrink:0, cursor:"pointer", accentColor:"var(--accent)" }} />
       <AvatarCircle name={user.name} picture={user.profilePicture} size={36} radius={18} fontSize="0.85rem" />
       <div style={{ flex:1, minWidth:0 }}>
         <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
@@ -5261,6 +5813,29 @@ function AdminDashboard() {
   const [sessions, setSessions] = useState([]);
   const [deviceRequests, setDeviceRequests] = useState([]);
   const [deviceLoading, setDeviceLoading]   = useState(false);
+  const [announcements, setAnnouncements]   = useState([]);
+  const [annLoading, setAnnLoading]         = useState(false);
+  const [annForm, setAnnForm]               = useState({ title:"", message:"", type:"info", targetRole:"all", pinned:false, expiresAt:"" });
+  const [logs, setLogs]                     = useState([]);
+  const [logsLoading, setLogsLoading]       = useState(false);
+  const [activity, setActivity]             = useState([]);
+  const [activityPeriod, setActivityPeriod] = useState("today");
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [emailForm, setEmailForm]           = useState({ subject:"", message:"", targetRole:"all" });
+  const [emailSending, setEmailSending]     = useState(false);
+  const [globalQ, setGlobalQ]               = useState("");
+  const [globalResults, setGlobalResults]   = useState(null);
+  const [globalLoading, setGlobalLoading]   = useState(false);
+  const [selectedIds, setSelectedIds]       = useState([]);
+  const [analytics, setAnalytics]           = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsDays, setAnalyticsDays]   = useState(30);
+  const [riskData, setRiskData]             = useState(null);
+  const [riskLoading, setRiskLoading]       = useState(false);
+  const [riskFilter, setRiskFilter]         = useState("all");
+  const [anomalies, setAnomalies]           = useState(null);
+  const [anomalyLoading, setAnomalyLoading] = useState(false);
+  const [aiSubTab, setAiSubTab]             = useState("analytics");
   const [loading, setLoading]   = useState(false);
   const [search, setSearch]     = useState("");
   const [roleFilter, setRoleFilter]     = useState("");
@@ -5306,10 +5881,14 @@ function AdminDashboard() {
 
   useEffect(() => { loadStats(); }, []);
   useEffect(() => {
-    if (tab === "users")    loadUsers("student");
-    if (tab === "teachers") loadUsers("teacher");
-    if (tab === "sessions") loadSessions();
-    if (tab === "devices")  loadDeviceRequests();
+    if (tab === "users")          loadUsers("student");
+    if (tab === "teachers")       loadUsers("teacher");
+    if (tab === "sessions")       loadSessions();
+    if (tab === "devices")        loadDeviceRequests();
+    if (tab === "announcements")  loadAnnouncements();
+    if (tab === "logs")           loadLogs();
+    if (tab === "overview")       loadActivity(activityPeriod);
+    if (tab === "ai")             { loadAnalytics(); loadRisk(); loadAnomalies(); }
   }, [tab, roleFilter, verifiedFilter, sessionFilter]);
 
   const handleSearch = (e) => {
@@ -5380,7 +5959,7 @@ function AdminDashboard() {
 
       {/* Tabs */}
       <div style={{ display:"flex", gap:4, borderBottom:"2px solid var(--border)", marginBottom:20 }}>
-        {[["users","👥 Students"], ["teachers","🧑‍🏫 Teachers"], ["sessions","📋 Sessions"], ["devices","📱 Device Requests"]].map(([key, label]) => (
+        {[["overview","📊 Overview"], ["ai","🤖 AI Insights"], ["users","👥 Students"], ["teachers","🧑‍🏫 Teachers"], ["sessions","📋 Sessions"], ["devices","📱 Devices"], ["announcements","📢 Announcements"], ["email","✉️ Email Blast"], ["logs","🗒 Logs"]].map(([key, label]) => (
           <button key={key} onClick={() => { setTab(key); setSearch(""); }} style={{
             padding:"8px 18px", fontWeight:700, fontSize:"0.85rem", border:"none", cursor:"pointer",
             background:"none", borderBottom: tab === key ? "2px solid var(--accent)" : "2px solid transparent",
@@ -5388,6 +5967,57 @@ function AdminDashboard() {
           }}>{label}</button>
         ))}
       </div>
+
+      {/* Global search */}
+      <div style={{ position:"relative", marginBottom:16 }}>
+        <input className="form-input" style={{ width:"100%", padding:"10px 14px 10px 36px", fontSize:"0.9rem" }}
+          placeholder="🔍 Search everything — users, sessions, student ID..."
+          value={globalQ} onChange={e => handleGlobalSearch(e.target.value)} />
+        {globalLoading && <div style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)" }}><Spinner size={16}/></div>}
+        {globalResults && (globalResults.users?.length > 0 || globalResults.sessions?.length > 0) && (
+          <div style={{ position:"absolute", top:"110%", left:0, right:0, background:"var(--surface)", border:"1px solid var(--border)", borderRadius:"var(--radius-sm)", boxShadow:"var(--shadow-md)", zIndex:200, maxHeight:320, overflowY:"auto" }}>
+            {globalResults.users?.length > 0 && (
+              <>
+                <div style={{ padding:"8px 14px 4px", fontSize:"0.72rem", fontWeight:700, color:"var(--muted)", textTransform:"uppercase" }}>Users</div>
+                {globalResults.users.map(u => (
+                  <div key={u._id} onClick={() => { setViewUser(u); setGlobalQ(""); setGlobalResults(null); }}
+                    style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderBottom:"1px solid var(--border)" }}
+                    onMouseEnter={e => e.currentTarget.style.background="var(--surface2)"}
+                    onMouseLeave={e => e.currentTarget.style.background=""}>
+                    <AvatarCircle name={u.name} picture={u.profilePicture} size={28} radius={14} fontSize="0.7rem"/>
+                    <div>
+                      <div style={{ fontSize:"0.85rem", fontWeight:600, color:"var(--ink)" }}>{u.name}</div>
+                      <div style={{ fontSize:"0.72rem", color:"var(--muted)" }}>{u.email} · {u.role}{u.grade ? ` · ${u.grade}` : ""}</div>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+            {globalResults.sessions?.length > 0 && (
+              <>
+                <div style={{ padding:"8px 14px 4px", fontSize:"0.72rem", fontWeight:700, color:"var(--muted)", textTransform:"uppercase" }}>Sessions</div>
+                {globalResults.sessions.map(s => (
+                  <div key={s._id} style={{ padding:"8px 14px", borderBottom:"1px solid var(--border)" }}>
+                    <div style={{ fontSize:"0.85rem", fontWeight:600, color:"var(--ink)" }}>{s.subject}</div>
+                    <div style={{ fontSize:"0.72rem", color:"var(--muted)" }}>by {s.teacher?.name} {s.room ? `· ${s.room}` : ""}</div>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Bulk action bar — shown when students selected */}
+      {selectedIds.length > 0 && (
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:"var(--accent-lt)", border:"1px solid var(--accent)", borderRadius:"var(--radius-sm)", marginBottom:12 }}>
+          <span style={{ fontSize:"0.85rem", fontWeight:700, color:"var(--accent)" }}>{selectedIds.length} selected</span>
+          <button className="btn btn-primary btn-sm" style={{ background:"var(--green)", borderColor:"var(--green)" }} onClick={handleBulkVerify}>✓ Verify All</button>
+          <button className="btn btn-ghost btn-sm" style={{ color:"var(--red)" }} onClick={handleBulkDelete}>🗑 Delete All</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setSelectedIds([])}>✕ Clear</button>
+          <button className="btn btn-ghost btn-sm" onClick={handleExportUsers} style={{ marginLeft:"auto" }}>📥 Export Excel</button>
+        </div>
+      )}
 
       {/* Search + filters */}
       <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
@@ -5420,7 +6050,7 @@ function AdminDashboard() {
       </div>
 
       {/* Content */}
-      {loading ? (
+      {loading && (tab === "users" || tab === "teachers" || tab === "sessions") && tab !== "ai" ? (
         <div style={{ display:"flex", justifyContent:"center", padding:"40px 0" }}><Spinner size={28} /></div>
       ) : (tab === "users" || tab === "teachers") ? (
         <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
@@ -5431,7 +6061,9 @@ function AdminDashboard() {
           ) : users.map(u => (
             <AdminUserRow key={u._id} user={u}
               onDelete={handleDelete} onVerify={handleVerify}
-              onUnverify={handleUnverify} onView={setViewUser} />
+              onUnverify={handleUnverify} onView={setViewUser}
+              selected={selectedIds.includes(u._id)}
+              onSelect={(id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id])} />
           ))}
         </div>
       ) : tab === "devices" ? (
@@ -5489,6 +6121,397 @@ function AdminDashboard() {
             </div>
           ))}
         </div>
+      ) : tab === "ai" ? (
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+
+          {/* AI Sub-tabs */}
+          <div style={{ display:"flex", gap:4, borderBottom:"2px solid var(--border)", marginBottom:4 }}>
+            {[["analytics","📈 Analytics"], ["risk","⚠️ Risk Prediction"], ["anomalies","🔍 Anomaly Detection"]].map(([key, label]) => (
+              <button key={key} onClick={() => setAiSubTab(key)} style={{
+                padding:"7px 16px", fontWeight:700, fontSize:"0.82rem", border:"none", cursor:"pointer",
+                background:"none", borderBottom: aiSubTab===key ? "2px solid var(--accent)" : "2px solid transparent",
+                color: aiSubTab===key ? "var(--accent)" : "var(--muted)", marginBottom:"-2px", transition:"all 0.15s",
+              }}>{label}</button>
+            ))}
+          </div>
+
+          {/* ── ANALYTICS ── */}
+          {aiSubTab === "analytics" && (
+            <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                <span style={{ fontWeight:700, fontSize:"0.9rem", color:"var(--ink)" }}>Attendance Analytics</span>
+                <div style={{ display:"flex", gap:6, marginLeft:"auto" }}>
+                  {[7,14,30,60].map(d => (
+                    <button key={d} className="btn btn-ghost btn-sm"
+                      style={{ background: analyticsDays===d ? "var(--accent)" : undefined, color: analyticsDays===d ? "#fff" : undefined, border: analyticsDays===d ? "none" : undefined, fontSize:"0.78rem" }}
+                      onClick={() => { setAnalyticsDays(d); loadAnalytics(d); }}>
+                      {d}d
+                    </button>
+                  ))}
+                  <button className="btn btn-ghost btn-sm" onClick={() => loadAnalytics(analyticsDays)}>↻</button>
+                </div>
+              </div>
+
+              {analyticsLoading ? <div style={{ textAlign:"center", padding:"40px 0" }}><Spinner size={28}/></div>
+              : !analytics ? <div style={{ textAlign:"center", padding:"40px 0", color:"var(--muted)" }}>Click ↻ to load analytics</div>
+              : (
+                <>
+                  {/* Summary cards */}
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(160px, 1fr))", gap:10 }}>
+                    {[
+                      { label:"Total Check-ins", value:analytics.totals.total, color:"var(--accent)" },
+                      { label:"Present", value:analytics.totals.present, color:"var(--green)" },
+                      { label:"Late", value:analytics.totals.late, color:"var(--amber)" },
+                      { label:"On-time Rate", value:`${analytics.totals.presentRate}%`, color:"var(--teal,#0D9488)" },
+                    ].map(card => (
+                      <div key={card.label} style={{ padding:"14px 16px", background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)" }}>
+                        <div style={{ fontSize:"0.72rem", color:"var(--muted)", fontWeight:700, textTransform:"uppercase", marginBottom:6 }}>{card.label}</div>
+                        <div style={{ fontSize:"1.6rem", fontWeight:800, color:card.color }}>{card.value}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Daily trend chart — pure CSS bar chart */}
+                  <div style={{ background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)", padding:"16px" }}>
+                    <div style={{ fontWeight:700, fontSize:"0.85rem", color:"var(--ink)", marginBottom:12 }}>Daily Attendance Trend</div>
+                    <div style={{ display:"flex", alignItems:"flex-end", gap:3, height:80, overflowX:"auto", paddingBottom:4 }}>
+                      {analytics.dailyTrend.map((d, i) => {
+                        const maxVal = Math.max(...analytics.dailyTrend.map(x => x.total), 1);
+                        const h = Math.round((d.total / maxVal) * 72);
+                        const ph = Math.round((d.present / d.total) * h);
+                        return (
+                          <div key={d._id} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2, minWidth:28, flex:1 }} title={`${d._id}: ${d.total} total`}>
+                            <div style={{ width:"100%", display:"flex", flexDirection:"column", justifyContent:"flex-end", height:72 }}>
+                              <div style={{ width:"100%", height:h, background:`linear-gradient(to top, var(--green) ${Math.round(ph/h*100)}%, var(--amber) 0%)`, borderRadius:"2px 2px 0 0", opacity:0.85 }}/>
+                            </div>
+                            <div style={{ fontSize:"0.58rem", color:"var(--muted)", whiteSpace:"nowrap" }}>
+                              {d._id.slice(5)}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ display:"flex", gap:12, marginTop:8 }}>
+                      <span style={{ fontSize:"0.72rem", display:"flex", alignItems:"center", gap:4 }}><span style={{ width:10, height:10, background:"var(--green)", borderRadius:2, display:"inline-block" }}/> Present</span>
+                      <span style={{ fontSize:"0.72rem", display:"flex", alignItems:"center", gap:4 }}><span style={{ width:10, height:10, background:"var(--amber)", borderRadius:2, display:"inline-block" }}/> Late</span>
+                    </div>
+                  </div>
+
+                  {/* Day of week heatmap */}
+                  <div style={{ background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)", padding:"16px" }}>
+                    <div style={{ fontWeight:700, fontSize:"0.85rem", color:"var(--ink)", marginBottom:12 }}>Best Days for Attendance</div>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(7, 1fr)", gap:6 }}>
+                      {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((day, i) => {
+                        const dayData = analytics.byDayOfWeek.find(d => d._id === i+1);
+                        const total = dayData?.total || 0;
+                        const maxDay = Math.max(...analytics.byDayOfWeek.map(d => d.total), 1);
+                        const intensity = total / maxDay;
+                        return (
+                          <div key={day} style={{ textAlign:"center" }}>
+                            <div style={{ padding:"10px 4px", borderRadius:"var(--radius-sm)", background:`rgba(37,99,235,${intensity * 0.8 + 0.05})`, color: intensity > 0.5 ? "#fff" : "var(--ink)", fontSize:"0.78rem", fontWeight:700, marginBottom:4 }}>{total || 0}</div>
+                            <div style={{ fontSize:"0.7rem", color:"var(--muted)" }}>{day}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Top subjects */}
+                  {analytics.bySubject.length > 0 && (
+                    <div style={{ background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)", padding:"16px" }}>
+                      <div style={{ fontWeight:700, fontSize:"0.85rem", color:"var(--ink)", marginBottom:12 }}>Attendance by Subject</div>
+                      {analytics.bySubject.map((s, i) => {
+                        const rate = s.total > 0 ? Math.round(s.present/s.total*100) : 0;
+                        return (
+                          <div key={s._id} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+                            <div style={{ fontSize:"0.82rem", color:"var(--ink)", minWidth:120, fontWeight:600 }}>{s._id}</div>
+                            <div style={{ flex:1, height:8, background:"var(--border)", borderRadius:4, overflow:"hidden" }}>
+                              <div style={{ width:`${rate}%`, height:"100%", background: rate>=80?"var(--green)":rate>=60?"var(--amber)":"var(--red)", borderRadius:4, transition:"width 0.5s" }}/>
+                            </div>
+                            <div style={{ fontSize:"0.78rem", color:"var(--muted)", minWidth:50, textAlign:"right" }}>{rate}% ({s.total})</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── RISK PREDICTION ── */}
+          {aiSubTab === "risk" && (
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                <div>
+                  <div style={{ fontWeight:700, fontSize:"0.9rem", color:"var(--ink)" }}>⚠️ Attendance Risk Prediction</div>
+                  <div style={{ fontSize:"0.78rem", color:"var(--muted)" }}>AI scoring based on absence rate, consecutive misses, and late patterns (last 30 days)</div>
+                </div>
+                <div style={{ display:"flex", gap:6, marginLeft:"auto" }}>
+                  {[["all","All"],["high","🔴 High"],["medium","🟡 Medium"],["low","🟢 Low"]].map(([v,l]) => (
+                    <button key={v} className="btn btn-ghost btn-sm" style={{ fontSize:"0.75rem",
+                      background: riskFilter===v ? "var(--accent)" : undefined,
+                      color: riskFilter===v ? "#fff" : undefined,
+                      border: riskFilter===v ? "none" : undefined }}
+                      onClick={() => setRiskFilter(v)}>{l}</button>
+                  ))}
+                  <button className="btn btn-ghost btn-sm" onClick={loadRisk}>↻</button>
+                </div>
+              </div>
+
+              {/* Risk legend */}
+              <div style={{ display:"flex", gap:12, padding:"10px 14px", background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)", flexWrap:"wrap" }}>
+                {[["high","var(--red)","var(--red-lt)","🔴 High Risk","Score 70-100 — Likely to fail"],["medium","var(--amber)","var(--amber-lt)","🟡 Medium Risk","Score 40-69 — Needs attention"],["low","var(--green)","var(--green-lt)","🟢 Low Risk","Score 0-39 — Attendance is fine"]].map(([l,col,bg,label,desc]) => (
+                  <div key={l} style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <div style={{ width:32, height:32, borderRadius:8, background:bg, border:`2px solid ${col}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"0.7rem", fontWeight:800, color:col }}>AI</div>
+                    <div><div style={{ fontSize:"0.78rem", fontWeight:700, color:col }}>{label}</div><div style={{ fontSize:"0.7rem", color:"var(--muted)" }}>{desc}</div></div>
+                  </div>
+                ))}
+              </div>
+
+              {riskLoading ? <div style={{ textAlign:"center", padding:"40px 0" }}><Spinner size={28}/></div>
+              : !riskData ? <div style={{ textAlign:"center", padding:"30px 0", color:"var(--muted)" }}>Click ↻ to run prediction</div>
+              : (() => {
+                const filtered = (riskData.predictions || []).filter(p => riskFilter === "all" || p.riskLevel === riskFilter);
+                return filtered.length === 0 ? (
+                  <div style={{ textAlign:"center", padding:"30px 0", color:"var(--muted)" }}>No students in this risk category.</div>
+                ) : filtered.map(p => {
+                  const colors = { high:["var(--red-lt)","var(--red)"], medium:["var(--amber-lt)","var(--amber)"], low:["var(--green-lt)","var(--green)"] };
+                  const [bg, border] = colors[p.riskLevel];
+                  return (
+                    <div key={p._id} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:"var(--radius-sm)", border:`1px solid ${border}`, background:bg }}>
+                      <AvatarCircle name={p.name} picture={p.profilePicture} size={38} radius={19} fontSize="0.85rem"/>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontWeight:700, fontSize:"0.88rem", color:"var(--ink)" }}>{p.name}
+                          {p.grade && <span style={{ fontSize:"0.74rem", color:"var(--muted)", fontWeight:400, marginLeft:8 }}>{p.grade} · {p.section}</span>}
+                        </div>
+                        <div style={{ display:"flex", gap:10, fontSize:"0.74rem", color:"var(--muted)", marginTop:3, flexWrap:"wrap" }}>
+                          <span>✅ {p.attended}/{p.totalSessions} sessions</span>
+                          <span>📊 {p.attendanceRate}% rate</span>
+                          {p.daysSinceLastSeen < 999 && <span>🕐 Last seen {p.daysSinceLastSeen}d ago</span>}
+                          {p.daysSinceLastSeen === 999 && <span style={{ color:"var(--red)", fontWeight:600 }}>Never attended</span>}
+                        </div>
+                      </div>
+                      {/* Risk score gauge */}
+                      <div style={{ textAlign:"center", flexShrink:0 }}>
+                        <div style={{ fontSize:"1.4rem", fontWeight:800, color:border }}>{p.riskScore}</div>
+                        <div style={{ fontSize:"0.68rem", color:"var(--muted)", textTransform:"uppercase", fontWeight:700 }}>Risk</div>
+                        <div style={{ width:48, height:4, background:"var(--border)", borderRadius:2, marginTop:4, overflow:"hidden" }}>
+                          <div style={{ width:`${p.riskScore}%`, height:"100%", background:border, borderRadius:2 }}/>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          )}
+
+          {/* ── ANOMALY DETECTION ── */}
+          {aiSubTab === "anomalies" && (
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <div>
+                  <div style={{ fontWeight:700, fontSize:"0.9rem", color:"var(--ink)" }}>🔍 Anomaly Detection</div>
+                  <div style={{ fontSize:"0.78rem", color:"var(--muted)" }}>Suspicious patterns detected in the last 7 days — shared IPs, rapid check-ins, off-hours, outliers</div>
+                </div>
+                <button className="btn btn-ghost btn-sm" onClick={loadAnomalies} style={{ marginLeft:"auto" }}>↻ Scan Now</button>
+              </div>
+
+              {anomalyLoading ? <div style={{ textAlign:"center", padding:"40px 0" }}><Spinner size={28}/></div>
+              : !anomalies ? <div style={{ textAlign:"center", padding:"30px 0", color:"var(--muted)" }}>Click ↻ Scan Now to run detection</div>
+              : anomalies.anomalies?.length === 0 ? (
+                <div style={{ textAlign:"center", padding:"32px 0" }}>
+                  <div style={{ fontSize:"2.5rem", marginBottom:10 }}>✅</div>
+                  <div style={{ fontWeight:700, color:"var(--green)", fontSize:"0.95rem" }}>No anomalies detected</div>
+                  <div style={{ fontSize:"0.82rem", color:"var(--muted)", marginTop:4 }}>All check-in patterns look normal for the past 7 days.</div>
+                </div>
+              ) : (
+                <>
+                  <div style={{ padding:"10px 14px", background:"var(--red-lt)", border:"1px solid var(--red)", borderRadius:"var(--radius-sm)", fontSize:"0.83rem", color:"var(--red)", fontWeight:600 }}>
+                    ⚠ {anomalies.anomalies.length} anomal{anomalies.anomalies.length!==1?"ies":"y"} detected — review immediately
+                  </div>
+                  {anomalies.anomalies.map((a, i) => {
+                    const sevColors = { high:["var(--red-lt)","var(--red)"], medium:["var(--amber-lt)","var(--amber)"], low:["var(--surface2)","var(--border)"] };
+                    const typeIcons = { SHARED_IP:"🌐", RAPID_CHECKINS:"⚡", OFF_HOURS:"🌙", STATISTICAL_OUTLIER:"📊" };
+                    const [bg, border] = sevColors[a.severity] || sevColors.low;
+                    return (
+                      <div key={i} style={{ padding:"14px 16px", borderRadius:"var(--radius-sm)", border:`1px solid ${border}`, background:bg }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                          <span style={{ fontSize:"1.1rem" }}>{typeIcons[a.type] || "⚠"}</span>
+                          <span style={{ fontWeight:700, fontSize:"0.88rem", color:"var(--ink)" }}>{a.title}</span>
+                          <AdminBadge color={a.severity==="high"?"red":a.severity==="medium"?"amber":"gray"}>{a.severity.toUpperCase()}</AdminBadge>
+                          <span style={{ fontSize:"0.72rem", color:"var(--muted)", marginLeft:"auto" }}>
+                            {new Date(a.detectedAt).toLocaleString("en-PH",{timeZone:"Asia/Manila",dateStyle:"short",timeStyle:"short"})}
+                          </span>
+                        </div>
+                        <div style={{ fontSize:"0.83rem", color:"var(--ink3)", marginBottom: a.students?.length ? 8 : 0 }}>{a.description}</div>
+                        {a.students?.length > 0 && (
+                          <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                            {a.students.map(s => (
+                              <span key={s.email} style={{ fontSize:"0.74rem", padding:"2px 8px", background:"var(--surface)", borderRadius:20, border:"1px solid var(--border)", color:"var(--ink3)" }}>{s.name}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+          )}
+
+        </div>
+      ) : tab === "overview" ? (
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          {/* Period selector */}
+          <div style={{ display:"flex", gap:8 }}>
+            {[["today","Today"],["week","This Week"],["month","This Month"]].map(([v,l]) => (
+              <button key={v} className="btn btn-ghost btn-sm"
+                style={{ background: activityPeriod===v ? "var(--accent)" : undefined, color: activityPeriod===v ? "#fff" : undefined, border: activityPeriod===v ? "none" : undefined }}
+                onClick={() => { setActivityPeriod(v); loadActivity(v); }}>{l}</button>
+            ))}
+            <button className="btn btn-ghost btn-sm" onClick={() => loadActivity(activityPeriod)}>↻ Refresh</button>
+          </div>
+          {activityLoading ? <div style={{ textAlign:"center", padding:"40px 0" }}><Spinner size={24}/></div> : activity.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"40px 0", color:"var(--muted)" }}>No login activity for this period.</div>
+          ) : activity.map((a, i) => (
+            <div key={a._id} style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)", background:"var(--surface)" }}>
+              <AvatarCircle name={a.name} picture={a.profilePicture} size={36} radius={18} fontSize="0.85rem"/>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:700, fontSize:"0.88rem", color:"var(--ink)" }}>{a.name}
+                  <AdminBadge color={a.role==="teacher"?"blue":"gray"} >{a.role}</AdminBadge>
+                </div>
+                <div style={{ fontSize:"0.75rem", color:"var(--muted)", marginTop:2 }}>
+                  {a.email} {a.grade ? `· ${a.grade} ${a.section||""}` : ""}
+                </div>
+              </div>
+              <div style={{ textAlign:"right" }}>
+                <div style={{ fontSize:"0.82rem", fontWeight:700, color:"var(--accent)" }}>{a.loginCount} login{a.loginCount!==1?"s":""}</div>
+                <div style={{ fontSize:"0.72rem", color:"var(--muted)" }}>{a.lastBrowser}</div>
+                <div style={{ fontSize:"0.7rem", fontFamily:"var(--font-mono)", color:"var(--muted)" }}>{a.lastIP}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+      ) : tab === "announcements" ? (
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          {/* Create form */}
+          <div style={{ padding:"16px", background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)" }}>
+            <div style={{ fontWeight:700, fontSize:"0.9rem", color:"var(--ink)", marginBottom:12 }}>📢 New Announcement</div>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+              <div className="form-group" style={{ marginBottom:0 }}>
+                <label className="form-label">Title</label>
+                <input className="form-input" placeholder="Announcement title" value={annForm.title} onChange={e=>setAnnForm(f=>({...f,title:e.target.value}))}/>
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <div className="form-group" style={{ marginBottom:0, flex:1 }}>
+                  <label className="form-label">Type</label>
+                  <select className="form-input" value={annForm.type} onChange={e=>setAnnForm(f=>({...f,type:e.target.value}))}>
+                    <option value="info">ℹ Info</option>
+                    <option value="warning">⚠ Warning</option>
+                    <option value="urgent">🚨 Urgent</option>
+                    <option value="success">✅ Success</option>
+                  </select>
+                </div>
+                <div className="form-group" style={{ marginBottom:0, flex:1 }}>
+                  <label className="form-label">Target</label>
+                  <select className="form-input" value={annForm.targetRole} onChange={e=>setAnnForm(f=>({...f,targetRole:e.target.value}))}>
+                    <option value="all">Everyone</option>
+                    <option value="student">Students only</option>
+                    <option value="teacher">Teachers only</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="form-group" style={{ marginBottom:10 }}>
+              <label className="form-label">Message</label>
+              <textarea className="form-input" rows={3} placeholder="Announcement message..." value={annForm.message} onChange={e=>setAnnForm(f=>({...f,message:e.target.value}))} style={{ resize:"vertical" }}/>
+            </div>
+            <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+              <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:"0.82rem", cursor:"pointer" }}>
+                <input type="checkbox" checked={annForm.pinned} onChange={e=>setAnnForm(f=>({...f,pinned:e.target.checked}))}/> 📌 Pin this announcement
+              </label>
+              <button className="btn btn-primary btn-sm" onClick={handleCreateAnn} style={{ marginLeft:"auto" }}>Post Announcement</button>
+            </div>
+          </div>
+          {/* List */}
+          {annLoading ? <div style={{ textAlign:"center" }}><Spinner size={22}/></div> : announcements.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"30px 0", color:"var(--muted)" }}>No announcements yet.</div>
+          ) : announcements.map(a => {
+            const colors = { info:["var(--accent-lt)","var(--accent)"], warning:["var(--amber-lt)","var(--amber)"], urgent:["var(--red-lt)","var(--red)"], success:["var(--green-lt)","var(--green)"] };
+            const [bg, border] = colors[a.type] || colors.info;
+            return (
+              <div key={a._id} style={{ padding:"14px 16px", borderRadius:"var(--radius-sm)", background:bg, border:`1px solid ${border}` }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                  {a.pinned && <span>📌</span>}
+                  <span style={{ fontWeight:700, color:"var(--ink)", fontSize:"0.9rem" }}>{a.title}</span>
+                  <AdminBadge color={a.type==="info"?"blue":a.type==="warning"?"amber":a.type==="urgent"?"red":"green"}>{a.type}</AdminBadge>
+                  <AdminBadge color="gray">{a.targetRole}</AdminBadge>
+                  <button className="btn btn-ghost btn-sm" onClick={()=>handleDeleteAnn(a._id)} style={{ marginLeft:"auto", color:"var(--red)", fontSize:"0.75rem" }}>🗑</button>
+                </div>
+                <div style={{ fontSize:"0.85rem", color:"var(--ink3)", lineHeight:1.6 }}>{a.message}</div>
+                <div style={{ fontSize:"0.72rem", color:"var(--muted)", marginTop:6 }}>by {a.author?.name} · {new Date(a.createdAt).toLocaleString("en-PH",{timeZone:"Asia/Manila",dateStyle:"medium",timeStyle:"short"})}</div>
+              </div>
+            );
+          })}
+        </div>
+
+      ) : tab === "email" ? (
+        <div style={{ display:"flex", flexDirection:"column", gap:14, maxWidth:600 }}>
+          <div style={{ padding:"4px 0 12px", borderBottom:"1px solid var(--border)" }}>
+            <div style={{ fontWeight:700, fontSize:"1rem", color:"var(--ink)" }}>✉️ Email Blast</div>
+            <div style={{ fontSize:"0.82rem", color:"var(--muted)", marginTop:4 }}>Send an email to all verified students, teachers, or everyone.</div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Send to</label>
+            <select className="form-input" value={emailForm.targetRole} onChange={e=>setEmailForm(f=>({...f,targetRole:e.target.value}))}>
+              <option value="all">All users (students + teachers)</option>
+              <option value="student">Students only</option>
+              <option value="teacher">Teachers only</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Subject</label>
+            <input className="form-input" placeholder="Email subject..." value={emailForm.subject} onChange={e=>setEmailForm(f=>({...f,subject:e.target.value}))}/>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Message</label>
+            <textarea className="form-input" rows={6} placeholder="Email message..." value={emailForm.message} onChange={e=>setEmailForm(f=>({...f,message:e.target.value}))} style={{ resize:"vertical" }}/>
+          </div>
+          <button className="btn btn-primary" onClick={handleEmailBlast} disabled={emailSending} style={{ alignSelf:"flex-start" }}>
+            {emailSending ? <><Spinner size={16}/> Sending…</> : "📨 Send Email Blast"}
+          </button>
+          <p style={{ fontSize:"0.78rem", color:"var(--muted)" }}>⚠ Only verified accounts receive emails. Sent in batches of 10 to avoid rate limits.</p>
+        </div>
+
+      ) : tab === "logs" ? (
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          <div style={{ display:"flex", justifyContent:"flex-end" }}>
+            <button className="btn btn-ghost btn-sm" onClick={loadLogs}>↻ Refresh</button>
+          </div>
+          {logsLoading ? <div style={{ textAlign:"center", padding:"40px 0" }}><Spinner size={24}/></div>
+          : logs.length === 0 ? <div style={{ textAlign:"center", padding:"40px 0", color:"var(--muted)" }}>No logs yet.</div>
+          : logs.map((log, i) => {
+            const actionColors = { DELETE_USER:"var(--red)", DELETE_SESSION:"var(--red)", BULK_DELETE:"var(--red)", VERIFY_USER:"var(--green)", BULK_VERIFY:"var(--green)", APPROVE_DEVICE:"var(--green)", EMAIL_BLAST:"var(--blue)", CREATE_ANNOUNCEMENT:"var(--accent)", RESET_PASSWORD:"var(--amber)" };
+            const col = actionColors[log.action] || "var(--gray)";
+            return (
+              <div key={log._id} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 14px", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)", background: i%2===0 ? "var(--surface)" : "var(--surface2)" }}>
+                <span style={{ padding:"2px 8px", borderRadius:20, background:`${col}22`, color:col, fontSize:"0.72rem", fontWeight:700, flexShrink:0 }}>{log.action}</span>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:"0.83rem", color:"var(--ink)" }}>{log.target || "—"}</div>
+                  {log.details && <div style={{ fontSize:"0.72rem", color:"var(--muted)" }}>{log.details}</div>}
+                </div>
+                <div style={{ textAlign:"right", flexShrink:0 }}>
+                  <div style={{ fontSize:"0.78rem", fontWeight:600, color:"var(--ink3)" }}>{log.adminName}</div>
+                  <div style={{ fontSize:"0.68rem", color:"var(--muted)" }}>{new Date(log.createdAt).toLocaleString("en-PH",{timeZone:"Asia/Manila",dateStyle:"short",timeStyle:"short"})}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
       ) : (
         <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
           {sessions.length === 0 ? (
@@ -5559,6 +6582,7 @@ function App() {
     <div className="app">
       <Nav onSettings={() => setPage("settings")} />
       <EmailVerificationBanner />
+      <AnnouncementBanner />
       {suspiciousAlert && (
         <div style={{ background:"var(--accent-lt)", borderBottom:"1px solid var(--accent)", padding:"10px 24px", display:"flex", alignItems:"center", gap:12 }}>
           <span style={{ fontSize:"1rem" }}>🔔</span>
