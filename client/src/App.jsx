@@ -3039,6 +3039,9 @@ function TeacherDashboard() {
   const [rosterSession, setRosterSession]   = useState(null);
   const [absenceSession, setAbsenceSession] = useState(null);
   const [editSession, setEditSession]   = useState(null);
+  const [sessionTimers, setSessionTimers] = useState({}); // sessionId -> elapsed seconds
+  const [liveCounters, setLiveCounters]   = useState({}); // sessionId -> live count
+  const timerRef = useRef(null);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -3049,6 +3052,39 @@ function TeacherDashboard() {
   }, []);
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
+
+  // Tick session timers every second for active sessions
+  useEffect(() => {
+    timerRef.current = setInterval(() => {
+      setSessionTimers(prev => {
+        const next = { ...prev };
+        sessions.forEach(s => {
+          if (s.isActive && s.activatedAt) {
+            next[s._id] = Math.floor((Date.now() - new Date(s.activatedAt).getTime()) / 1000);
+          }
+        });
+        return next;
+      });
+      // Update live counters from attendance count
+      setLiveCounters(prev => {
+        const next = { ...prev };
+        sessions.forEach(s => {
+          if (s.isActive) next[s._id] = s.attendanceCount || prev[s._id] || 0;
+        });
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(timerRef.current);
+  }, [sessions]);
+
+  const formatTimer = (secs) => {
+    if (!secs && secs !== 0) return "0:00";
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+    return `${m}:${String(s).padStart(2,"0")}`;
+  };
 
   const handleStart = async (sessionId) => {
     try {
@@ -3070,6 +3106,30 @@ function TeacherDashboard() {
     setSessions((prev) => prev.map((s) => s._id === activeQR._id ? { ...s, isActive: false } : s));
     setActiveQR(null);
     fetchSessions();
+  };
+
+  const handleQuickExport = async (session) => {
+    try {
+      const data = await api.get(`/sessions/${session._id}`);
+      const rows = (data.attendance || []).map(a => ({
+        Name: a.student?.name || "", Email: a.student?.email || "",
+        "Student ID": a.student?.studentId || "",
+        Grade: a.student?.grade || "", Section: a.student?.section || "",
+        Status: a.status, Time: new Date(a.timestamp).toLocaleString("en-PH",{timeZone:"Asia/Manila"}),
+      }));
+      const loadXLSX = () => new Promise(resolve => {
+        if (window.XLSX) { resolve(window.XLSX); return; }
+        const s = document.createElement("script");
+        s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+        s.onload = () => resolve(window.XLSX);
+        document.head.appendChild(s);
+      });
+      const XLSX = await loadXLSX();
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Attendance");
+      XLSX.writeFile(wb, `${session.subject}_${new Date().toISOString().split("T")[0]}.xlsx`);
+    } catch(e) { alert(e.message); }
   };
 
   const handleDelete = async (sessionId, sessionSubject) => {
@@ -3323,10 +3383,11 @@ function TeacherDashboard() {
                             {session.room}
                           </span>
                         )}
-                        {/* Attendance count */}
-                        <span className="session-meta-chip">
-                          <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M7 14s-1 0-1-1 1-4 5-4 5 3 5 4-1 1-1 1H7zm4-6a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path fillRule="evenodd" d="M5.216 14A2.238 2.238 0 0 1 5 13c0-1.355.68-2.75 1.936-3.72A6.325 6.325 0 0 0 5 9c-4 0-5 3-5 4s1 1 1 1h4.216z"/><path d="M4.5 8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/></svg>
-                          {session.attendanceCount || 0} check-in{session.attendanceCount !== 1 ? "s" : ""}
+                        {/* Attendance count + live counter */}
+                        <span className="session-meta-chip" style={session.isActive ? { color:"var(--green)", borderColor:"var(--green)" } : {}}>
+                          <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M7 14s-1 0-1-1 1-4 5-4 5 3 5 4-1 1-1 1H7zm4-6a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/></svg>
+                          {session.isActive ? (liveCounters[session._id] ?? session.attendanceCount ?? 0) : (session.attendanceCount || 0)} check-in{session.attendanceCount !== 1 ? "s" : ""}
+                          {session.isActive && <span style={{ marginLeft:3, width:6, height:6, borderRadius:"50%", background:"var(--green)", display:"inline-block", animation:"pulse 1.4s infinite" }}/>}
                         </span>
                         {/* Grace period */}
                         <span className="session-meta-chip chip-accent">
@@ -3352,13 +3413,29 @@ function TeacherDashboard() {
                           </span>
                         )}
                         {/* Live badge */}
+                        {/* Live badge + timer */}
                         {session.isActive && (
                           <span className="session-meta-chip chip-live">
                             <span style={{ width:6, height:6, borderRadius:"50%", background:"var(--green)", display:"inline-block", animation:"pulse 1.4s infinite" }}/>
                             Live
                           </span>
                         )}
-                        {/* Expiry */}
+                        {session.isActive && sessionTimers[session._id] !== undefined && (
+                          <span className="session-meta-chip" style={{ fontFamily:"var(--font-mono)", fontWeight:700, color:"var(--green)", borderColor:"var(--green)" }}>
+                            ⏱ {formatTimer(sessionTimers[session._id])}
+                          </span>
+                        )}
+                        {/* Roster quick view */}
+                        {session.roster?.length > 0 && (
+                          <span className="session-meta-chip" style={{ color:"var(--accent)", borderColor:"var(--accent)" }}>
+                            📋 {session.roster.length} enrolled
+                            {session.isActive && (liveCounters[session._id] ?? 0) > 0 && (
+                              <span style={{ marginLeft:4, color:"var(--muted)" }}>
+                                ({Math.round(((liveCounters[session._id]||0)/session.roster.length)*100)}% in)
+                              </span>
+                            )}
+                          </span>
+                        )}
                         <SessionEndLabel expiresAt={session.expiresAt} />
                       </div>
                     </div>
@@ -3376,6 +3453,7 @@ function TeacherDashboard() {
                       <button className="btn btn-ghost btn-sm" onClick={() => setEditSession(session)} title="Edit session settings" style={{ padding:"6px 10px" }}>✏️</button>
                       <button className="btn btn-ghost btn-sm" onClick={() => setRosterSession(session)} title="Manage class roster" style={{ padding:"6px 10px" }}>📋</button>
                       <button className="btn btn-ghost btn-sm" onClick={() => setAbsenceSession(session)} title="Absence tracker" style={{ padding:"6px 10px", color:"var(--red)" }}>📊</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => handleQuickExport(session)} title="Quick export to Excel" style={{ padding:"6px 10px", color:"var(--green)" }}>📥</button>
                       <button className="btn btn-danger btn-sm" onClick={() => handleDelete(session._id, session.subject)} title="Delete session and all attendance records">🗑</button>
                     </div>
                   </div>
@@ -4219,16 +4297,89 @@ function StudentDashboard() {
   const [openSubjects, setOpenSubjects] = useState({});
   const [openMonths, setOpenMonths]   = useState({});
   const [openDays, setOpenDays]       = useState({});
+  const [showGraph, setShowGraph]     = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [notifOpen, setNotifOpen]     = useState(false);
+  const [sessions, setSessions]       = useState([]); // upcoming sessions for schedule
 
   useEffect(() => {
     api.get("/attendance/my")
-      .then(d => { setAttendance(d.attendance); setLoading(false); })
+      .then(d => { setAttendance(d.attendance || []); setLoading(false); })
       .catch(() => setLoading(false));
+    // Load announcements as notifications
+    api.get("/admin/announcements?role=student")
+      .then(d => {
+        const dismissed = JSON.parse(localStorage.getItem("dismissedAnn") || "[]");
+        setNotifications((d.announcements || []).filter(a => !dismissed.includes(a._id)));
+      }).catch(() => {});
+    // Load active sessions for schedule view
+    api.get("/attendance/my").then(d => {
+      // Extract unique subjects for schedule
+      const recs = d.attendance || [];
+      const bySubject = {};
+      recs.forEach(a => {
+        const subj = a.session?.subject;
+        if (subj && !bySubject[subj]) bySubject[subj] = a;
+      });
+      setSessions(Object.values(bySubject).slice(0, 5));
+    }).catch(() => {});
   }, []);
 
   const present = attendance.filter(a => a.status === "present").length;
   const late    = attendance.filter(a => a.status === "late").length;
+  const absent  = attendance.filter(a => a.status === "absent").length;
   const rate    = attendance.length > 0 ? Math.round((present / attendance.length) * 100) : 0;
+
+  // Attendance streak — consecutive present/late days (no absences)
+  const streak = (() => {
+    const sorted = [...attendance]
+      .filter(a => a.status === "present" || a.status === "late")
+      .sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+    if (!sorted.length) return 0;
+    let count = 1;
+    for (let i = 1; i < sorted.length; i++) {
+      const dayDiff = Math.round(
+        (new Date(sorted[i-1].timestamp) - new Date(sorted[i].timestamp)) / 86400000
+      );
+      if (dayDiff <= 3) count++; // allow weekends
+      else break;
+    }
+    return count;
+  })();
+
+  // Absence warning — per subject
+  const absenceBySubject = (() => {
+    const map = {};
+    attendance.forEach(a => {
+      const subj = a.session?.subject || "Unknown";
+      if (!map[subj]) map[subj] = { absent: 0, total: 0 };
+      map[subj].total++;
+      if (a.status === "absent") map[subj].absent++;
+    });
+    return map;
+  })();
+  const atRiskSubjects = Object.entries(absenceBySubject)
+    .filter(([,v]) => v.absent >= 3)
+    .map(([subj,v]) => ({ subj, absent: v.absent, total: v.total }));
+
+  // Weekly chart data — last 8 weeks
+  const weeklyData = (() => {
+    const weeks = {};
+    attendance.forEach(a => {
+      const d = new Date(a.timestamp);
+      const weekStart = new Date(d);
+      weekStart.setDate(d.getDate() - d.getDay());
+      const key = weekStart.toISOString().split("T")[0];
+      if (!weeks[key]) weeks[key] = { present: 0, late: 0, absent: 0 };
+      if (a.status === "present") weeks[key].present++;
+      else if (a.status === "late") weeks[key].late++;
+      else if (a.status === "absent") weeks[key].absent++;
+    });
+    return Object.entries(weeks)
+      .sort(([a],[b]) => a.localeCompare(b))
+      .slice(-8)
+      .map(([date, v]) => ({ date: date.slice(5), ...v, total: v.present + v.late + v.absent }));
+  })();
 
   const filtered = attendance.filter(a => {
     const matchStatus = filterStatus === "all" || a.status === filterStatus;
@@ -4289,14 +4440,76 @@ function StudentDashboard() {
             <p className="page-sub">Track your class attendance history</p>
           </div>
           {/* Scan QR button */}
-          <button
-            className="btn btn-primary"
-            onClick={() => setShowScanner(true)}
-            style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}
-          >
-            <span style={{ fontSize:"1.1rem" }}>📷</span>
-            Scan QR Code
-          </button>
+          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+            {/* Notification Bell */}
+            <div style={{ position:"relative" }}>
+              <button onClick={() => setNotifOpen(o=>!o)} style={{
+                background:"var(--surface2)", border:"1px solid var(--border)",
+                borderRadius:"50%", width:38, height:38, cursor:"pointer",
+                display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.1rem",
+                color: notifications.length > 0 ? "var(--amber)" : "var(--muted)",
+              }}>🔔</button>
+              {notifications.length > 0 && (
+                <span style={{ position:"absolute", top:-4, right:-4, background:"var(--red)",
+                  color:"#fff", borderRadius:"50%", width:16, height:16,
+                  fontSize:"0.65rem", fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  {notifications.length}
+                </span>
+              )}
+              {notifOpen && (
+                <div style={{ position:"absolute", right:0, top:"110%", width:300,
+                  background:"var(--surface)", border:"1px solid var(--border)",
+                  borderRadius:"var(--radius-sm)", boxShadow:"var(--shadow-md)", zIndex:200,
+                  maxHeight:320, overflowY:"auto" }}>
+                  <div style={{ padding:"10px 14px", fontWeight:700, fontSize:"0.82rem",
+                    borderBottom:"1px solid var(--border)", color:"var(--ink)" }}>
+                    Notifications {notifications.length > 0 && `(${notifications.length})`}
+                  </div>
+                  {notifications.length === 0 ? (
+                    <div style={{ padding:"20px", textAlign:"center", color:"var(--muted)", fontSize:"0.83rem" }}>
+                      No new notifications
+                    </div>
+                  ) : notifications.map(n => {
+                    const colors = { info:"var(--accent)", warning:"var(--amber)", urgent:"var(--red)", success:"var(--green)" };
+                    const icons  = { info:"ℹ️", warning:"⚠️", urgent:"🚨", success:"✅" };
+                    return (
+                      <div key={n._id} style={{ padding:"10px 14px", borderBottom:"1px solid var(--border)" }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                          <span>{icons[n.type]||"ℹ️"}</span>
+                          <span style={{ fontWeight:700, fontSize:"0.83rem", color:colors[n.type]||"var(--accent)" }}>{n.title}</span>
+                        </div>
+                        <div style={{ fontSize:"0.78rem", color:"var(--ink3)", lineHeight:1.5 }}>{n.message}</div>
+                        <button onClick={() => {
+                          const dismissed = JSON.parse(localStorage.getItem("dismissedAnn")||"[]");
+                          localStorage.setItem("dismissedAnn", JSON.stringify([...dismissed, n._id]));
+                          setNotifications(prev => prev.filter(x => x._id !== n._id));
+                          api.request("POST", `/admin/announcements/${n._id}/read`).catch(()=>{});
+                        }} style={{ fontSize:"0.7rem", color:"var(--muted)", background:"none", border:"none", cursor:"pointer", marginTop:4 }}>
+                          Mark as read
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            {/* Graph toggle */}
+            <button onClick={() => setShowGraph(g=>!g)}
+              style={{ background: showGraph?"var(--accent)":"var(--surface2)",
+                color: showGraph?"#fff":"var(--muted)",
+                border:"1px solid var(--border)", borderRadius:"var(--radius-sm)",
+                padding:"8px 14px", cursor:"pointer", fontSize:"0.82rem", fontWeight:600 }}>
+              📈 {showGraph ? "Hide Graph" : "Show Graph"}
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowScanner(true)}
+              style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}
+            >
+              <span style={{ fontSize:"1.1rem" }}>📷</span>
+              Scan QR Code
+            </button>
+          </div>
         </div>
 
         {/* Scanner modal */}
@@ -4313,6 +4526,24 @@ function StudentDashboard() {
             <span>⚠️</span>
             <div style={{ flex:1, fontSize:"0.85rem", color:"var(--red)" }}>{scanResult.message}</div>
             <button onClick={() => setScanResult(null)} style={{ background:"none", border:"none", cursor:"pointer", color:"var(--red)" }}>✕</button>
+          </div>
+        )}
+
+        {/* Absence warning */}
+        {atRiskSubjects.length > 0 && (
+          <div style={{ padding:"12px 16px", background:"var(--red-lt)", border:"1px solid var(--red)",
+            borderRadius:"var(--radius-sm)", marginBottom:16, display:"flex", gap:10, alignItems:"flex-start" }}>
+            <span style={{ fontSize:"1.2rem", flexShrink:0 }}>⚠️</span>
+            <div>
+              <div style={{ fontWeight:700, fontSize:"0.88rem", color:"var(--red)", marginBottom:4 }}>
+                Absence Warning — You are close to the limit in {atRiskSubjects.length} subject{atRiskSubjects.length!==1?"s":""}
+              </div>
+              {atRiskSubjects.map(s => (
+                <div key={s.subj} style={{ fontSize:"0.8rem", color:"var(--red)", marginBottom:2 }}>
+                  • {s.subj}: {s.absent} absence{s.absent!==1?"s":""}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -4334,7 +4565,110 @@ function StudentDashboard() {
             <div className="stat-value">{rate}%</div>
             <div className="stat-sub">on-time</div>
           </div>
+          {/* Streak card */}
+          <div className="stat-card" style={{ "--stat-color": streak >= 7 ? "var(--amber)" : "var(--purple, #6D28D9)" }}>
+            <div className="stat-label">Streak</div>
+            <div className="stat-value" style={{ display:"flex", alignItems:"center", gap:6 }}>
+              {streak}
+              <span style={{ fontSize:"1.2rem" }}>{streak >= 14 ? "🔥" : streak >= 7 ? "⭐" : "📅"}</span>
+            </div>
+            <div className="stat-sub">days present</div>
+          </div>
         </div>
+
+        {/* Personal attendance graph */}
+        {showGraph && (
+          <div style={{ background:"var(--surface2)", border:"1px solid var(--border)",
+            borderRadius:"var(--radius-sm)", padding:"16px", marginBottom:16 }}>
+            <div style={{ fontWeight:700, fontSize:"0.88rem", color:"var(--ink)", marginBottom:12 }}>
+              📈 My Attendance Trend — Last 8 Weeks
+            </div>
+            {weeklyData.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"20px", color:"var(--muted)", fontSize:"0.83rem" }}>
+                No data yet — scan QR codes to start tracking
+              </div>
+            ) : (
+              <>
+                <div style={{ display:"flex", alignItems:"flex-end", gap:6, height:80, marginBottom:8 }}>
+                  {weeklyData.map((w, i) => {
+                    const max = Math.max(...weeklyData.map(x => x.total), 1);
+                    const h = Math.round((w.total / max) * 72);
+                    const ph = w.total > 0 ? Math.round((w.present / w.total) * h) : 0;
+                    const lh = w.total > 0 ? Math.round((w.late / w.total) * h) : 0;
+                    const ah = h - ph - lh;
+                    return (
+                      <div key={w.date} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}
+                        title={`${w.date}: ${w.present} present, ${w.late} late, ${w.absent} absent`}>
+                        <div style={{ width:"100%", display:"flex", flexDirection:"column", justifyContent:"flex-end", height:72 }}>
+                          <div style={{ width:"100%", borderRadius:"2px 2px 0 0", overflow:"hidden" }}>
+                            {ah > 0 && <div style={{ height:ah, background:"var(--red)", opacity:0.8 }}/>}
+                            {lh > 0 && <div style={{ height:lh, background:"var(--amber)", opacity:0.9 }}/>}
+                            {ph > 0 && <div style={{ height:ph, background:"var(--green)", opacity:0.9 }}/>}
+                          </div>
+                        </div>
+                        <div style={{ fontSize:"0.58rem", color:"var(--muted)", whiteSpace:"nowrap" }}>{w.date}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ display:"flex", gap:12 }}>
+                  {[["var(--green)","Present"],["var(--amber)","Late"],["var(--red)","Absent"]].map(([col,label]) => (
+                    <span key={label} style={{ fontSize:"0.72rem", display:"flex", alignItems:"center", gap:4 }}>
+                      <span style={{ width:10, height:10, background:col, borderRadius:2, display:"inline-block" }}/>
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Class schedule — recent subjects */}
+        {sessions.length > 0 && (
+          <div style={{ background:"var(--surface2)", border:"1px solid var(--border)",
+            borderRadius:"var(--radius-sm)", padding:"14px 16px", marginBottom:16 }}>
+            <div style={{ fontWeight:700, fontSize:"0.88rem", color:"var(--ink)", marginBottom:10 }}>
+              📅 My Subjects
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+              {sessions.map((a, i) => {
+                const subj = a.session?.subject || "Unknown";
+                const teacher = a.session?.teacher?.name || "";
+                const recs = attendance.filter(r => r.session?.subject === subj);
+                const p = recs.filter(r => r.status==="present").length;
+                const t = recs.length;
+                const r = t > 0 ? Math.round(p/t*100) : 0;
+                return (
+                  <div key={i} style={{ display:"flex", alignItems:"center", gap:10,
+                    padding:"8px 10px", background:"var(--surface)", borderRadius:"var(--radius-sm)",
+                    border:"1px solid var(--border)" }}>
+                    <div style={{ width:32, height:32, borderRadius:8,
+                      background:`hsl(${(subj.charCodeAt(0)*37)%360},60%,85%)`,
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                      fontSize:"0.9rem", flexShrink:0 }}>
+                      📚
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:600, fontSize:"0.85rem", color:"var(--ink)",
+                        overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{subj}</div>
+                      {teacher && <div style={{ fontSize:"0.72rem", color:"var(--muted)" }}>{teacher}</div>}
+                    </div>
+                    <div style={{ textAlign:"right", flexShrink:0 }}>
+                      <div style={{ fontSize:"0.82rem", fontWeight:700,
+                        color: r>=80?"var(--green)":r>=60?"var(--amber)":"var(--red)" }}>{r}%</div>
+                      <div style={{ fontSize:"0.68rem", color:"var(--muted)" }}>{t} sessions</div>
+                    </div>
+                    <div style={{ width:40, height:5, background:"var(--border)", borderRadius:3, overflow:"hidden", flexShrink:0 }}>
+                      <div style={{ width:`${r}%`, height:"100%",
+                        background: r>=80?"var(--green)":r>=60?"var(--amber)":"var(--red)", borderRadius:3 }}/>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Controls row */}
         <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
