@@ -6024,7 +6024,8 @@ function AdminDashboard() {
         </div>
       )}
 
-      {/* Search + filters */}
+      {/* Search + filters — only for user/teacher/session tabs */}
+      {(tab === "users" || tab === "teachers" || tab === "sessions") && (
       <div style={{ display:"flex", gap:8, marginBottom:16, flexWrap:"wrap" }}>
         <input className="form-input" style={{ flex:1, minWidth:200, padding:"8px 12px", fontSize:"0.85rem" }}
           placeholder={tab === "sessions" ? "Search subject, teacher…" : tab === "teachers" ? "Search name, email…" : "Search name, email, student ID…"}
@@ -6053,6 +6054,7 @@ function AdminDashboard() {
 
         <button className="btn btn-ghost btn-sm" onClick={() => tab === "sessions" ? loadSessions() : tab === "teachers" ? loadUsers("teacher") : loadUsers("student")} title="Refresh">↻</button>
       </div>
+      )}
 
       {/* Content */}
       {loading && (tab === "users" || tab === "teachers" || tab === "sessions") && tab !== "ai" ? (
@@ -6069,6 +6071,15 @@ function AdminDashboard() {
               onUnverify={handleUnverify} onView={setViewUser}
               selected={selectedIds.includes(u._id)}
               onSelect={(id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id])} />
+          ))}
+        </div>
+      ) : tab === "sessions" ? (
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {sessions.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"40px 0", color:"var(--muted)" }}>No sessions found.</div>
+          ) : sessions.map(s => (
+            <AdminSessionRow key={s._id} session={s}
+              onStop={handleStopSession} onDelete={handleDeleteSession} />
           ))}
         </div>
       ) : tab === "devices" ? (
@@ -6517,16 +6528,7 @@ function AdminDashboard() {
           })}
         </div>
 
-      ) : (
-        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-          {sessions.length === 0 ? (
-            <div style={{ textAlign:"center", padding:"40px 0", color:"var(--muted)" }}>No sessions found.</div>
-          ) : sessions.map(s => (
-            <AdminSessionRow key={s._id} session={s}
-              onStop={handleStopSession} onDelete={handleDeleteSession} />
-          ))}
-        </div>
-      )}
+      ) : null}
 
       {/* User detail modal */}
       {viewUser && (
