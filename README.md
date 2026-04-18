@@ -556,7 +556,7 @@ Teacher clicks Stop
 
 ## License
 
-This project was developed for academic research purposes at Vedasto R. Santiago High School. For usage inquiries, contact the developer.
+This project was developed for academic research purposes. For usage inquiries, contact the developer.
 
 ---
 
