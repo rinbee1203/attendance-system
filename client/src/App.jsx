@@ -5031,155 +5031,6 @@ function SecuritySettingsSection() {
     return () => clearInterval(interval);
   }, []);
 
-  const loadDeviceRequests = async () => {
-    setDeviceLoading(true);
-    try {
-      const d = await api.get("/admin/device-requests");
-      setDeviceRequests(d?.requests || []);
-    } catch(e) { showToast(e.message, "error"); }
-    finally { setDeviceLoading(false); }
-  };
-
-  const loadAnalytics = async (days = analyticsDays) => {
-    setAnalyticsLoading(true);
-    try { const d = await api.get(`/admin/analytics?days=${days}`); setAnalytics(d.analytics); }
-    catch(e) { showToast(e.message, "error"); }
-    finally { setAnalyticsLoading(false); }
-  };
-
-  const loadRisk = async () => {
-    setRiskLoading(true);
-    try { const d = await api.get("/admin/risk"); setRiskData(d); }
-    catch(e) { showToast(e.message, "error"); }
-    finally { setRiskLoading(false); }
-  };
-
-  const loadAnomalies = async () => {
-    setAnomalyLoading(true);
-    try { const d = await api.get("/admin/anomalies"); setAnomalies(d); }
-    catch(e) { showToast(e.message, "error"); }
-    finally { setAnomalyLoading(false); }
-  };
-
-  const loadAnnouncements = async () => {
-    setAnnLoading(true);
-    try { const d = await api.get("/admin/announcements"); setAnnouncements(d.announcements || []); }
-    catch(e) { showToast(e.message, "error"); }
-    finally { setAnnLoading(false); }
-  };
-
-  const handleCreateAnn = async () => {
-    if (!annForm.title || !annForm.message) return showToast("Title and message required.", "error");
-    try {
-      await api.request("POST", "/admin/announcements", annForm);
-      showToast("Announcement created ✓");
-      setAnnForm({ title:"", message:"", type:"info", targetRole:"all", pinned:false, expiresAt:"" });
-      loadAnnouncements();
-    } catch(e) { showToast(e.message, "error"); }
-  };
-
-  const handleDeleteAnn = async (id) => {
-    try { await api.request("DELETE", `/admin/announcements/${id}`); showToast("Deleted."); loadAnnouncements(); }
-    catch(e) { showToast(e.message, "error"); }
-  };
-
-  const loadLogs = async () => {
-    setLogsLoading(true);
-    try { const d = await api.get("/admin/logs"); setLogs(d.logs || []); }
-    catch(e) { showToast(e.message, "error"); }
-    finally { setLogsLoading(false); }
-  };
-
-  const loadActivity = async (period = activityPeriod) => {
-    setActivityLoading(true);
-    try { const d = await api.get(`/admin/activity?period=${period}`); setActivity(d.activity || []); }
-    catch(e) { showToast(e.message, "error"); }
-    finally { setActivityLoading(false); }
-  };
-
-  const handleEmailBlast = async () => {
-    if (!emailForm.subject || !emailForm.message) return showToast("Subject and message required.", "error");
-    setEmailSending(true);
-    try {
-      const d = await api.request("POST", "/admin/email-blast", emailForm);
-      showToast(`✓ Email sent to ${d.sent} users`);
-      setEmailForm({ subject:"", message:"", targetRole:"all" });
-    } catch(e) { showToast(e.message, "error"); }
-    finally { setEmailSending(false); }
-  };
-
-  const handleGlobalSearch = async (q) => {
-    setGlobalQ(q);
-    if (q.length < 2) { setGlobalResults(null); return; }
-    setGlobalLoading(true);
-    try { const d = await api.get(`/admin/search?q=${encodeURIComponent(q)}`); setGlobalResults(d); }
-    catch(e) {} finally { setGlobalLoading(false); }
-  };
-
-  const handleBulkVerify = async () => {
-    if (!selectedIds.length) return showToast("Select users first.", "error");
-    try { const d = await api.request("POST", "/admin/bulk-verify-users", { ids: selectedIds }); showToast(d.message); setSelectedIds([]); loadUsers("student"); loadStats(); }
-    catch(e) { showToast(e.message, "error"); }
-  };
-
-  const handleBulkDelete = async () => {
-    if (!selectedIds.length) return showToast("Select users first.", "error");
-    try { const d = await api.request("POST", "/admin/bulk-delete-users", { ids: selectedIds }); showToast(d.message); setSelectedIds([]); loadUsers("student"); loadStats(); }
-    catch(e) { showToast(e.message, "error"); }
-  };
-
-  const handleExportUsers = async () => {
-    try {
-      const d = await api.get("/admin/export-users");
-      const users = d.users || [];
-      // Build XLSX using SheetJS
-      const loadXLSX = () => new Promise((resolve) => {
-        if (window.XLSX) { resolve(window.XLSX); return; }
-        const s = document.createElement("script");
-        s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-        s.onload = () => resolve(window.XLSX);
-        document.head.appendChild(s);
-      });
-      const XLSX = await loadXLSX();
-      const rows = users.map(u => ({
-        Name: u.name, Email: u.email, Role: u.role,
-        "Student ID": u.studentId || "", Grade: u.grade || "", Section: u.section || "",
-        Verified: u.isVerified ? "Yes" : "No", School: u.school || "",
-        Department: u.department || "", Joined: new Date(u.createdAt).toLocaleDateString("en-PH"),
-      }));
-      const ws = XLSX.utils.json_to_sheet(rows);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Users");
-      XLSX.writeFile(wb, `AttendQR_Users_${new Date().toISOString().split("T")[0]}.xlsx`);
-      showToast(`✓ Exported ${users.length} users`);
-    } catch(e) { showToast(e.message, "error"); }
-  };
-
-  const handleApproveDevice = async (userId, fingerprint) => {
-    try {
-      await api.request("PATCH", `/admin/device-requests/${userId}/approve`, { fingerprint });
-      showToast("Device approved ✓");
-      loadDeviceRequests();
-      loadStats();
-    } catch(e) { showToast(e.message, "error"); }
-  };
-
-  const handleRejectDevice = async (userId, fingerprint) => {
-    try {
-      await api.request("DELETE", `/admin/device-requests/${userId}/reject`, { fingerprint });
-      showToast("Device request rejected.");
-      loadDeviceRequests();
-    } catch(e) { showToast(e.message, "error"); }
-  };
-
-  const handleResetDevice = async (userId) => {
-    try {
-      await api.request("PATCH", `/admin/users/${userId}/reset-device`);
-      showToast("Device policy reset. Student can login from any device once.");
-      loadDeviceRequests();
-    } catch(e) { showToast(e.message, "error"); }
-  };
-
   const loadSessions = async () => {
     setSessionsLoading(true);
     try {
@@ -5871,6 +5722,157 @@ function AdminDashboard() {
     } catch(e) { showToast(e.message, "error"); }
     finally { setLoading(false); }
   };
+
+  const loadDeviceRequests = async () => {
+    setDeviceLoading(true);
+    try {
+      const d = await api.get("/admin/device-requests");
+      setDeviceRequests(d?.requests || []);
+    } catch(e) { showToast(e.message, "error"); }
+    finally { setDeviceLoading(false); }
+  };
+
+  const loadAnalytics = async (days = analyticsDays) => {
+    setAnalyticsLoading(true);
+    try { const d = await api.get(`/admin/analytics?days=${days}`); setAnalytics(d.analytics); }
+    catch(e) { showToast(e.message, "error"); }
+    finally { setAnalyticsLoading(false); }
+  };
+
+  const loadRisk = async () => {
+    setRiskLoading(true);
+    try { const d = await api.get("/admin/risk"); setRiskData(d); }
+    catch(e) { showToast(e.message, "error"); }
+    finally { setRiskLoading(false); }
+  };
+
+  const loadAnomalies = async () => {
+    setAnomalyLoading(true);
+    try { const d = await api.get("/admin/anomalies"); setAnomalies(d); }
+    catch(e) { showToast(e.message, "error"); }
+    finally { setAnomalyLoading(false); }
+  };
+
+  const loadAnnouncements = async () => {
+    setAnnLoading(true);
+    try { const d = await api.get("/admin/announcements"); setAnnouncements(d.announcements || []); }
+    catch(e) { showToast(e.message, "error"); }
+    finally { setAnnLoading(false); }
+  };
+
+  const handleCreateAnn = async () => {
+    if (!annForm.title || !annForm.message) return showToast("Title and message required.", "error");
+    try {
+      await api.request("POST", "/admin/announcements", annForm);
+      showToast("Announcement created ✓");
+      setAnnForm({ title:"", message:"", type:"info", targetRole:"all", pinned:false, expiresAt:"" });
+      loadAnnouncements();
+    } catch(e) { showToast(e.message, "error"); }
+  };
+
+  const handleDeleteAnn = async (id) => {
+    try { await api.request("DELETE", `/admin/announcements/${id}`); showToast("Deleted."); loadAnnouncements(); }
+    catch(e) { showToast(e.message, "error"); }
+  };
+
+  const loadLogs = async () => {
+    setLogsLoading(true);
+    try { const d = await api.get("/admin/logs"); setLogs(d.logs || []); }
+    catch(e) { showToast(e.message, "error"); }
+    finally { setLogsLoading(false); }
+  };
+
+  const loadActivity = async (period = activityPeriod) => {
+    setActivityLoading(true);
+    try { const d = await api.get(`/admin/activity?period=${period}`); setActivity(d.activity || []); }
+    catch(e) { showToast(e.message, "error"); }
+    finally { setActivityLoading(false); }
+  };
+
+  const handleEmailBlast = async () => {
+    if (!emailForm.subject || !emailForm.message) return showToast("Subject and message required.", "error");
+    setEmailSending(true);
+    try {
+      const d = await api.request("POST", "/admin/email-blast", emailForm);
+      showToast(`✓ Email sent to ${d.sent} users`);
+      setEmailForm({ subject:"", message:"", targetRole:"all" });
+    } catch(e) { showToast(e.message, "error"); }
+    finally { setEmailSending(false); }
+  };
+
+  const handleGlobalSearch = async (q) => {
+    setGlobalQ(q);
+    if (q.length < 2) { setGlobalResults(null); return; }
+    setGlobalLoading(true);
+    try { const d = await api.get(`/admin/search?q=${encodeURIComponent(q)}`); setGlobalResults(d); }
+    catch(e) {} finally { setGlobalLoading(false); }
+  };
+
+  const handleBulkVerify = async () => {
+    if (!selectedIds.length) return showToast("Select users first.", "error");
+    try { const d = await api.request("POST", "/admin/bulk-verify-users", { ids: selectedIds }); showToast(d.message); setSelectedIds([]); loadUsers("student"); loadStats(); }
+    catch(e) { showToast(e.message, "error"); }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!selectedIds.length) return showToast("Select users first.", "error");
+    try { const d = await api.request("POST", "/admin/bulk-delete-users", { ids: selectedIds }); showToast(d.message); setSelectedIds([]); loadUsers("student"); loadStats(); }
+    catch(e) { showToast(e.message, "error"); }
+  };
+
+  const handleExportUsers = async () => {
+    try {
+      const d = await api.get("/admin/export-users");
+      const users = d.users || [];
+      // Build XLSX using SheetJS
+      const loadXLSX = () => new Promise((resolve) => {
+        if (window.XLSX) { resolve(window.XLSX); return; }
+        const s = document.createElement("script");
+        s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+        s.onload = () => resolve(window.XLSX);
+        document.head.appendChild(s);
+      });
+      const XLSX = await loadXLSX();
+      const rows = users.map(u => ({
+        Name: u.name, Email: u.email, Role: u.role,
+        "Student ID": u.studentId || "", Grade: u.grade || "", Section: u.section || "",
+        Verified: u.isVerified ? "Yes" : "No", School: u.school || "",
+        Department: u.department || "", Joined: new Date(u.createdAt).toLocaleDateString("en-PH"),
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Users");
+      XLSX.writeFile(wb, `AttendQR_Users_${new Date().toISOString().split("T")[0]}.xlsx`);
+      showToast(`✓ Exported ${users.length} users`);
+    } catch(e) { showToast(e.message, "error"); }
+  };
+
+  const handleApproveDevice = async (userId, fingerprint) => {
+    try {
+      await api.request("PATCH", `/admin/device-requests/${userId}/approve`, { fingerprint });
+      showToast("Device approved ✓");
+      loadDeviceRequests();
+      loadStats();
+    } catch(e) { showToast(e.message, "error"); }
+  };
+
+  const handleRejectDevice = async (userId, fingerprint) => {
+    try {
+      await api.request("DELETE", `/admin/device-requests/${userId}/reject`, { fingerprint });
+      showToast("Device request rejected.");
+      loadDeviceRequests();
+    } catch(e) { showToast(e.message, "error"); }
+  };
+
+  const handleResetDevice = async (userId) => {
+    try {
+      await api.request("PATCH", `/admin/users/${userId}/reset-device`);
+      showToast("Device policy reset. Student can login from any device once.");
+      loadDeviceRequests();
+    } catch(e) { showToast(e.message, "error"); }
+  };
+
+
 
   const loadSessions = async () => {
     setLoading(true);
