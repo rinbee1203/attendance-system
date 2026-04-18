@@ -45,9 +45,9 @@ router.patch("/users/:id/reset-device",       resetTrustedDevice);
 router.patch("/users/:id/toggle-device-policy", toggleDevicePolicy);
 
 // Bulk actions
-router.post("/users/bulk-verify",   bulkVerifyUsers);
-router.post("/users/bulk-delete",   bulkDeleteUsers);
-router.get("/users/export",         exportUsersExcel);
+router.post("/bulk-verify-users",   bulkVerifyUsers);
+router.post("/bulk-delete-users",   bulkDeleteUsers);
+router.get("/export-users",         exportUsersExcel);
 
 // Email blast
 router.post("/email-blast",        sendEmailBlast);
