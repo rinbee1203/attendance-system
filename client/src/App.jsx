@@ -3,6 +3,34 @@ import { useState, useEffect, useCallback, createContext, useContext, useRef } f
 // ─── API CONFIG ────────────────────────────────────────────────────────────────
 const API_BASE = "https://attendance-system-api-wc0k.onrender.com/api";
 
+const getDeviceFingerprint = () => {
+  const nav = window.navigator;
+  const screen = window.screen;
+  const components = [
+    nav.userAgent,
+    nav.language,
+    nav.platform,
+    `${screen.width}x${screen.height}x${screen.colorDepth}`,
+    nav.hardwareConcurrency || "",
+    nav.deviceMemory || "",
+    Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+    nav.cookieEnabled,
+    typeof nav.getBattery !== "undefined",
+  ].join("|");
+  // Simple hash
+  let hash = 0;
+  for (let i = 0; i < components.length; i++) {
+    const char = components.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36) + components.length.toString(36);
+};
+
+// Store fingerprint once per session
+const DEVICE_FP = getDeviceFingerprint();
+
+
 const api = {
   // Supports both:
   //   api.request("/url", { method, body })          — original style
@@ -37,13 +65,26 @@ const api = {
     } catch (networkErr) {
       throw new Error("Cannot reach the server. Check your connection.");
     }
-    const data = await res.json();
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      throw new Error(`Server error (${res.status}). Please try again.`);
+    }
+    if (res.status === 401) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      window.location.reload();
+      throw new Error(data.message || "Session expired. Please log in again.");
+    }
     if (!res.ok) throw new Error(data.message || "Request failed");
     return data;
   },
-  post: (url, body) => api.request(url, { method: "POST", body: JSON.stringify(body) }),
-  patch: (url, body) => api.request(url, { method: "PATCH", body: JSON.stringify(body) }),
-  get: (url) => api.request(url, { method: "GET" }),
+  post:   (url, body) => api.request(url, { method: "POST",   body: JSON.stringify(body) }),
+  patch:  (url, body) => api.request(url, { method: "PATCH",  body: JSON.stringify(body) }),
+  put:    (url, body) => api.request(url, { method: "PUT",    body: JSON.stringify(body) }),
+  delete: (url)       => api.request(url, { method: "DELETE" }),
+  get:    (url)       => api.request(url, { method: "GET" }),
 };
 
 // ─── AUTH CONTEXT ──────────────────────────────────────────────────────────────
@@ -873,6 +914,8 @@ const styles = `
   }
   .badge-present { background: var(--green-lt); color: var(--green); }
   .badge-late { background: var(--amber-lt); color: var(--amber); }
+  .badge-absent { background: var(--red-lt,#fef2f2); color: var(--red,#dc2626); }
+  .badge-excused { background: #ede9fe; color: #7c3aed; }
   .badge-active { background: var(--green-lt); color: var(--green); }
   .badge-inactive { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
   .badge-expired { background: var(--amber-lt); color: var(--amber); }
@@ -2111,35 +2154,7 @@ function PasswordStrengthBar({ password }) {
 }
 
 // ─── DEVICE FINGERPRINT ───────────────────────────────────────────────────────
-// Generates a stable browser/device fingerprint using available signals
-const getDeviceFingerprint = () => {
-  const nav = window.navigator;
-  const screen = window.screen;
-  const components = [
-    nav.userAgent,
-    nav.language,
-    nav.platform,
-    `${screen.width}x${screen.height}x${screen.colorDepth}`,
-    nav.hardwareConcurrency || "",
-    nav.deviceMemory || "",
-    Intl.DateTimeFormat().resolvedOptions().timeZone || "",
-    nav.cookieEnabled,
-    typeof nav.getBattery !== "undefined",
-  ].join("|");
-  // Simple hash
-  let hash = 0;
-  for (let i = 0; i < components.length; i++) {
-    const char = components.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash |= 0;
-  }
-  return Math.abs(hash).toString(36) + components.length.toString(36);
-};
-
-// Store fingerprint once per session
-const DEVICE_FP = getDeviceFingerprint();
-
-// ─── GRADE / SECTION FILTER WIDGET ───────────────────────────────────────────
+// Generates a stable browser/device fingerprint using available signals// ─── GRADE / SECTION FILTER WIDGET ───────────────────────────────────────────
 function GradeFilterWidget({ allowedGrades, allowedSections, onChange }) {
   const [gradeInput, setGradeInput]     = useState(allowedGrades.join(", "));
   const [sectionInput, setSectionInput] = useState(allowedSections.join(", "));
@@ -2779,7 +2794,7 @@ function AttendanceAccordion({ records, onStudentClick }) {
                                     <td>{a.student?.studentId || "—"}</td>
                                     <td>{a.student?.grade || <span style={{ color: "var(--muted)" }}>—</span>}</td>
                                     <td>{a.student?.section || <span style={{ color: "var(--muted)" }}>—</span>}</td>
-                                    <td><span className={`badge badge-${a.status}`}>{a.status === "present" ? "✓ Present" : status === "late" ? "⏰ Late" : status === "absent" ? "❌ Absent" : "📝 Excused"}</span></td>
+                                    <td><span className={`badge badge-${a.status}`}>{a.status === "present" ? "✓ Present" : a.status === "late" ? "⏰ Late" : a.status === "absent" ? "❌ Absent" : "📝 Excused"}</span></td>
                                     <td>{ts.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Manila" })}</td>
                                   </tr>
                                 );
@@ -2899,12 +2914,12 @@ function ExportPicker({ attendance, session }) {
   const [zipping, setZipping] = useState(false);
 
   const byMonth = attendance.reduce((acc, a) => {
-    const k = new Date(a.timestamp).toLocaleDateString("en-PH", { year:"numeric", month:"long", timeZone:"Asia/Manila" });
+    const k = new Date(a.timestamp || Date.now()).toLocaleDateString("en-PH", { year:"numeric", month:"long", timeZone:"Asia/Manila" });
     if (!acc[k]) acc[k] = []; acc[k].push(a); return acc;
   }, {});
 
   const byDay = attendance.reduce((acc, a) => {
-    const k = new Date(a.timestamp).toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" });
+    const k = new Date(a.timestamp || Date.now()).toLocaleDateString("en-PH", { year:"numeric", month:"long", day:"numeric", timeZone:"Asia/Manila" });
     if (!acc[k]) acc[k] = []; acc[k].push(a); return acc;
   }, {});
 
@@ -2946,7 +2961,7 @@ function ExportPicker({ attendance, session }) {
       }
       closeModal();
     } catch(e) {
-      console.error("Export error:", e);
+      /* export error: silent fail */
     } finally {
       setZipping(false);
     }
@@ -3039,12 +3054,13 @@ function TeacherDashboard() {
   const [rosterSession, setRosterSession]   = useState(null);
   const [absenceSession, setAbsenceSession] = useState(null);
   const [editSession, setEditSession]   = useState(null);
+  const [dashError, setDashError] = useState("");
 
   const fetchSessions = useCallback(async () => {
     try {
       const data = await api.get("/sessions");
       setSessions(data.sessions);
-    } catch (err) { console.error(err); }
+    } catch (err) { setDashError(err.message || "Failed to load sessions."); }
     finally { setLoading(false); }
   }, []);
 
@@ -3055,7 +3071,7 @@ function TeacherDashboard() {
       const data = await api.post(`/sessions/${sessionId}/start`, {});
       setSessions((prev) => prev.map((s) => s._id === sessionId ? { ...s, isActive: true } : s));
       setActiveQR(data.session);
-    } catch (err) { alert(err.message); }
+    } catch (err) { setDashError(err.message || "Failed to start session."); }
   };
 
   const handleRefreshQR = async () => {
@@ -3087,7 +3103,7 @@ function TeacherDashboard() {
       }
       await api.request(`/sessions/${sessionId}`, { method: "DELETE" });
       setSessions((prev) => prev.filter((s) => s._id !== sessionId));
-    } catch (err) { alert(err.message); }
+    } catch (err) { setDashError(err.message || "Failed to delete session."); }
   };
 
   const viewDetails = async (session) => {
@@ -3122,7 +3138,7 @@ function TeacherDashboard() {
         es.onerror = () => { es.close(); };
         sseRef.current = es;
       }
-    } catch (err) { console.error(err); }
+    } catch (err) { setDashError(err.message || "Failed to load session details."); }
     finally { setLoadingAttendance(false); }
   };
 
@@ -3146,6 +3162,17 @@ function TeacherDashboard() {
   return (
     <div className="main">
       <div className="container">
+        {dashError && (
+          <div style={{
+            padding:"10px 16px", marginBottom:12,
+            background:"var(--red-lt,#fef2f2)", border:"1px solid var(--red,#dc2626)",
+            borderRadius:"var(--radius-sm)", fontSize:"0.85rem", color:"var(--red,#dc2626)",
+            display:"flex", justifyContent:"space-between", alignItems:"center"
+          }}>
+            <span>⚠ {dashError}</span>
+            <button onClick={() => setDashError("")} style={{ background:"none", border:"none", cursor:"pointer", color:"inherit", fontSize:"1.2rem", lineHeight:1, padding:"0 2px" }}>×</button>
+          </div>
+        )}
         {viewSession ? (
           <>
             {/* ── DETAIL VIEW ── */}
@@ -3245,7 +3272,7 @@ function TeacherDashboard() {
                     <div className="history-filters" style={{ margin: 0 }}>
                       {["all", "present", "late"].map((f) => (
                         <span key={f} className={`filter-chip ${filterStatus === f ? "active" : ""}`} onClick={() => setFilterStatus(f)}>
-                          {f === "all" ? "All" : f === "present" ? "✓ Present" : status === "late" ? "⏰ Late" : status === "absent" ? "❌ Absent" : "📝 Excused"}
+                          {f === "all" ? "All" : f === "present" ? "✓ Present" : f === "late" ? "⏰ Late" : f === "absent" ? "❌ Absent" : "📝 Excused"}
                           {f === "all" ? ` (${attendance.length})` : f === "present" ? ` (${presentCount})` : ` (${lateCount})`}
                         </span>
                       ))}
@@ -3595,6 +3622,7 @@ function RosterManagerModal({ session, onClose, onSaved }) {
   const [loading, setLoading]     = useState(true);
   const [saving, setSaving]       = useState(false);
   const [csvError, setCsvError]   = useState("");
+  const [saveError, setSaveError]   = useState("");
   const [absLimit, setAbsLimit]   = useState(session.absenceLimit||3);
   const [absEnabled, setAbsEnabled] = useState(session.absenceLimitEnabled||false);
   const fileRef = useRef(null);
@@ -3619,8 +3647,7 @@ function RosterManagerModal({ session, onClose, onSaved }) {
     setCsvError("");
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const lines = ev.target.result.split("
-").map(l=>l.trim()).filter(Boolean);
+      const lines = ev.target.result.split("\n").map(l=>l.trim()).filter(Boolean);
       const headers = lines[0].toLowerCase().split(",").map(h=>h.trim());
       const emailIdx = headers.indexOf("email");
       const idIdx    = headers.indexOf("student id") !== -1 ? headers.indexOf("student id") : headers.indexOf("studentid");
@@ -3654,7 +3681,7 @@ function RosterManagerModal({ session, onClose, onSaved }) {
       });
       onSaved?.();
       onClose();
-    } catch(e) { alert(e.message); }
+    } catch(e) { setSaveError(e.message || "Failed to save roster."); }
     finally { setSaving(false); }
   };
 
@@ -3756,9 +3783,15 @@ function RosterManagerModal({ session, onClose, onSaved }) {
             </div>
           )}
 
+          {/* Save error */}
+          {saveError && (
+            <div style={{ padding:"8px 12px", background:"var(--red-lt)", border:"1px solid var(--red)", borderRadius:"var(--radius-sm)", fontSize:"0.83rem", color:"var(--red)", marginBottom:4 }}>
+              ⚠ {saveError}
+            </div>
+          )}
           {/* Save */}
           <div style={{ display:"flex", gap:8, paddingTop:8, borderTop:"1px solid var(--border)" }}>
-            <button className="btn btn-primary" style={{ flex:1 }} onClick={handleSave} disabled={saving}>
+            <button className="btn btn-primary" style={{ flex:1 }} onClick={() => { setSaveError(""); handleSave(); }} disabled={saving}>
               {saving ? <Spinner size={16}/> : `💾 Save Roster (${roster.size} students)`}
             </button>
             <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
@@ -3780,6 +3813,7 @@ function AbsenceTrackerModal({ session, onClose }) {
   const [absenceLimit, setAbsenceLimit] = useState(3);
   const [absEnabled, setAbsEnabled] = useState(false);
   const [filterAbs, setFilterAbs] = useState("all");
+  const [actionMsg, setActionMsg] = useState(null);
   useEscKey(onClose);
 
   const load = async () => {
@@ -3798,9 +3832,9 @@ function AbsenceTrackerModal({ session, onClose }) {
   const handleMarkAbsences = async () => {
     try {
       const d = await api.request("POST", `/attendance/mark-absences/${session._id}`);
-      alert(d.message);
+      setActionMsg({ type: "success", text: d.message });
       load();
-    } catch(e) { alert(e.message); }
+    } catch(e) { setActionMsg({ type: "error", text: e.message || "Failed to mark absences." }); }
   };
 
   const handleOverride = async (recordId) => {
@@ -3808,8 +3842,9 @@ function AbsenceTrackerModal({ session, onClose }) {
     try {
       await api.request("PATCH", `/attendance/${recordId}/override`, { status: newStatus, reason });
       setOverriding(null); setReason("");
+      setActionMsg({ type: "success", text: "Status updated." });
       load();
-    } catch(e) { alert(e.message); }
+    } catch(e) { setActionMsg({ type: "error", text: e.message || "Failed to override status." }); }
     finally { setSaveLoading(false); }
   };
 
@@ -3831,6 +3866,13 @@ function AbsenceTrackerModal({ session, onClose }) {
         </div>
         <div className="modal-body" style={{ display:"flex", flexDirection:"column", gap:14 }}>
 
+          {/* Action feedback */}
+          {actionMsg && (
+            <div style={{ padding:"8px 12px", background: actionMsg.type==="error" ? "var(--red-lt)" : "var(--green-lt)", border:`1px solid ${actionMsg.type==="error" ? "var(--red)" : "var(--green)"}`, borderRadius:"var(--radius-sm)", fontSize:"0.83rem", color: actionMsg.type==="error" ? "var(--red)" : "var(--green)", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <span>{actionMsg.type==="error" ? "⚠ " : "✓ "}{actionMsg.text}</span>
+              <button onClick={()=>setActionMsg(null)} style={{ background:"none", border:"none", cursor:"pointer", color:"inherit", fontSize:"1rem", lineHeight:1 }}>×</button>
+            </div>
+          )}
           {/* Action bar */}
           <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
             <button className="btn btn-primary btn-sm" onClick={handleMarkAbsences} style={{ background:"var(--red)", borderColor:"var(--red)" }}>
@@ -4234,8 +4276,8 @@ function StudentDashboard() {
   // ── Group by SUBJECT → month → day ──────────────────────────────────────────
   const bySubject = filtered.reduce((acc, a) => {
     const subj = a.session?.subject || "Unknown Subject";
-    const mo   = new Date(a.timestamp).toLocaleDateString("en-PH",{year:"numeric",month:"long",timeZone:"Asia/Manila"});
-    const day  = new Date(a.timestamp).toLocaleDateString("en-PH",{year:"numeric",month:"long",day:"numeric",timeZone:"Asia/Manila"});  // uses dayKey helper
+    const mo   = new Date(a.timestamp || Date.now()).toLocaleDateString("en-PH",{year:"numeric",month:"long",timeZone:"Asia/Manila"});
+    const day  = new Date(a.timestamp || Date.now()).toLocaleDateString("en-PH",{year:"numeric",month:"long",day:"numeric",timeZone:"Asia/Manila"});  // uses dayKey helper
     if (!acc[subj]) acc[subj] = {};
     if (!acc[subj][mo]) acc[subj][mo] = {};
     if (!acc[subj][mo][day]) acc[subj][mo][day] = [];
@@ -4245,8 +4287,8 @@ function StudentDashboard() {
 
   // ── Group by MONTH → day ─────────────────────────────────────────────────────
   const byMonth = filtered.reduce((acc, a) => {
-    const mo  = new Date(a.timestamp).toLocaleDateString("en-PH",{year:"numeric",month:"long",timeZone:"Asia/Manila"});
-    const day = new Date(a.timestamp).toLocaleDateString("en-PH",{year:"numeric",month:"long",day:"numeric",timeZone:"Asia/Manila"});
+    const mo  = new Date(a.timestamp || Date.now()).toLocaleDateString("en-PH",{year:"numeric",month:"long",timeZone:"Asia/Manila"});
+    const day = new Date(a.timestamp || Date.now()).toLocaleDateString("en-PH",{year:"numeric",month:"long",day:"numeric",timeZone:"Asia/Manila"});
     if (!acc[mo]) acc[mo] = {};
     if (!acc[mo][day]) acc[mo][day] = [];
     acc[mo][day].push(a);
@@ -4525,7 +4567,7 @@ function StudentHistoryRow({ record: a }) {
         </div>
       </div>
       <div style={{ textAlign:"right", flexShrink:0 }}>
-        <span className={`badge badge-${a.status}`} style={{ display:"inline-flex", marginBottom:4 }}>{a.status==="present"?"✓ Present":"⏰ Late"}</span>
+        <span className={`badge badge-${a.status}`} style={{ display:"inline-flex", marginBottom:4 }}>{a.status==="present"?"✓ Present":a.status==="late"?"⏰ Late":a.status==="excused"?"📝 Excused":"❌ Absent"}</span>
         <div style={{ fontSize:"0.73rem", color:"var(--muted)" }}>{ts.toLocaleTimeString("en-PH",{hour:"2-digit",minute:"2-digit",...PH})}</div>
       </div>
     </div>
@@ -6159,10 +6201,10 @@ function AdminDashboard() {
                   {/* Summary cards */}
                   <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(160px, 1fr))", gap:10 }}>
                     {[
-                      { label:"Total Check-ins", value:analytics.totals.total, color:"var(--accent)" },
-                      { label:"Present", value:analytics.totals.present, color:"var(--green)" },
-                      { label:"Late", value:analytics.totals.late, color:"var(--amber)" },
-                      { label:"On-time Rate", value:`${analytics.totals.presentRate}%`, color:"var(--teal,#0D9488)" },
+                      { label:"Total Check-ins", value:analytics.totals?.total ?? 0, color:"var(--accent)" },
+                      { label:"Present", value:analytics.totals?.present ?? 0, color:"var(--green)" },
+                      { label:"Late", value:analytics.totals?.late ?? 0, color:"var(--amber)" },
+                      { label:"On-time Rate", value:`${analytics.totals?.presentRate ?? 0}%`, color:"var(--teal,#0D9488)" },
                     ].map(card => (
                       <div key={card.label} style={{ padding:"14px 16px", background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)" }}>
                         <div style={{ fontSize:"0.72rem", color:"var(--muted)", fontWeight:700, textTransform:"uppercase", marginBottom:6 }}>{card.label}</div>
@@ -6175,8 +6217,8 @@ function AdminDashboard() {
                   <div style={{ background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)", padding:"16px" }}>
                     <div style={{ fontWeight:700, fontSize:"0.85rem", color:"var(--ink)", marginBottom:12 }}>Daily Attendance Trend</div>
                     <div style={{ display:"flex", alignItems:"flex-end", gap:3, height:80, overflowX:"auto", paddingBottom:4 }}>
-                      {analytics.dailyTrend.map((d, i) => {
-                        const maxVal = Math.max(...analytics.dailyTrend.map(x => x.total), 1);
+                      {(analytics.dailyTrend||[]).map((d, i) => {
+                        const maxVal = Math.max(...(analytics.dailyTrend||[]).map(x => x.total), 1);
                         const h = Math.round((d.total / maxVal) * 72);
                         const ph = Math.round((d.present / d.total) * h);
                         return (
@@ -6202,9 +6244,9 @@ function AdminDashboard() {
                     <div style={{ fontWeight:700, fontSize:"0.85rem", color:"var(--ink)", marginBottom:12 }}>Best Days for Attendance</div>
                     <div style={{ display:"grid", gridTemplateColumns:"repeat(7, 1fr)", gap:6 }}>
                       {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((day, i) => {
-                        const dayData = analytics.byDayOfWeek.find(d => d._id === i+1);
+                        const dayData = (analytics.byDayOfWeek||[]).find(d => d._id === i+1);
                         const total = dayData?.total || 0;
-                        const maxDay = Math.max(...analytics.byDayOfWeek.map(d => d.total), 1);
+                        const maxDay = Math.max(...(analytics.byDayOfWeek||[]).map(d => d.total), 1);
                         const intensity = total / maxDay;
                         return (
                           <div key={day} style={{ textAlign:"center" }}>
@@ -6220,7 +6262,7 @@ function AdminDashboard() {
                   {analytics.bySubject.length > 0 && (
                     <div style={{ background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)", padding:"16px" }}>
                       <div style={{ fontWeight:700, fontSize:"0.85rem", color:"var(--ink)", marginBottom:12 }}>Attendance by Subject</div>
-                      {analytics.bySubject.map((s, i) => {
+                      {(analytics.bySubject||[]).map((s, i) => {
                         const rate = s.total > 0 ? Math.round(s.present/s.total*100) : 0;
                         return (
                           <div key={s._id} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
@@ -6329,9 +6371,9 @@ function AdminDashboard() {
               ) : (
                 <>
                   <div style={{ padding:"10px 14px", background:"var(--red-lt)", border:"1px solid var(--red)", borderRadius:"var(--radius-sm)", fontSize:"0.83rem", color:"var(--red)", fontWeight:600 }}>
-                    ⚠ {anomalies.anomalies.length} anomal{anomalies.anomalies.length!==1?"ies":"y"} detected — review immediately
+                    ⚠ {anomalies.anomalies?.length} anomal{anomalies.anomalies?.length!==1?"ies":"y"} detected — review immediately
                   </div>
-                  {anomalies.anomalies.map((a, i) => {
+                  {(anomalies.anomalies||[]).map((a, i) => {
                     const sevColors = { high:["var(--red-lt)","var(--red)"], medium:["var(--amber-lt)","var(--amber)"], low:["var(--surface2)","var(--border)"] };
                     const typeIcons = { SHARED_IP:"🌐", RAPID_CHECKINS:"⚡", OFF_HOURS:"🌙", STATISTICAL_OUTLIER:"📊" };
                     const [bg, border] = sevColors[a.severity] || sevColors.low;
