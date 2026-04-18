@@ -270,4 +270,30 @@ const updateSession = async (req, res) => {
   }
 };
 
-module.exports = { createSession, startSession, refreshQR, stopSession, getSessions, getSession, deleteSession, updateSession };
+
+// @desc    Get all students visible to this teacher (for roster building)
+// @route   GET /api/sessions/students
+// @access  Teacher only
+const getStudentsForRoster = async (req, res) => {
+  try {
+    const User = require("../models/User");
+    // Get grade/section filters from teacher's existing sessions
+    const sessions = await Session.find({ teacher: req.user._id }).select("allowedGrades allowedSections");
+    // Build a query - if teacher has grade filters, only show those students
+    const allGrades = [...new Set(sessions.flatMap(s => s.allowedGrades))];
+    const allSections = [...new Set(sessions.flatMap(s => s.allowedSections))];
+    const query = { role: "student", isVerified: true };
+    if (allGrades.length > 0) {
+      query.grade = { $in: allGrades.map(g => new RegExp(`^${g}$`, 'i')) };
+    }
+    const students = await User.find(query)
+      .select("name email studentId grade section profilePicture")
+      .sort({ grade:1, section:1, name:1 })
+      .limit(500);
+    res.json({ success: true, students });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to fetch students." });
+  }
+};
+
+module.exports = { createSession, getStudentsForRoster, startSession, refreshQR, stopSession, getSessions, getSession, deleteSession, updateSession };
