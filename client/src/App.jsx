@@ -4693,40 +4693,89 @@ function AttendanceForecastPanel({ onClose }) {
 
 // ─── ACADEMIC YEAR MANAGER ────────────────────────────────────────────────────
 function AcademicYearManager({ onClose }) {
-  const [years, setYears] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [view, setView] = useState("list"); // "list" | "create" | "promote"
-  const [form, setForm] = useState({
+  const [years, setYears]             = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [view, setView]               = useState("list"); // "list"|"create"|"promote"|"batch"
+  const [actionLoading, setActionLoading] = useState(false);
+
+  // Active year state
+  const [activeYear, setActiveYear]   = useState(null);
+  const [autoMsg, setAutoMsg]         = useState("");
+
+  // Edit end date
+  const [editEndDate, setEditEndDate] = useState("");
+  const [editingEndDate, setEditingEndDate] = useState(false);
+
+  // Promote wizard
+  const [promoteTarget, setPromoteTarget] = useState(null);
+  const [previewData, setPreviewData]     = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [promoteStep, setPromoteStep]     = useState(1);
+
+  // Batch register
+  const [batchRows, setBatchRows]         = useState([]);
+  const [batchParsed, setBatchParsed]     = useState([]); // parsed from CSV
+  const [batchLoading, setBatchLoading]   = useState(false);
+  const [batchResult, setBatchResult]     = useState(null);
+  const [batchDefaultPw, setBatchDefaultPw] = useState("AttendQR@2026");
+  const [batchSection, setBatchSection]   = useState("");
+  const [csvError, setCsvError]           = useState("");
+  const batchFileRef = useRef(null);
+
+  // Create form — hidden, only shown if no active year and user wants manual
+  const [showCreate, setShowCreate]   = useState(false);
+  const [form, setForm]               = useState({
     name: "", startDate: "", endDate: "", semester: "Full Year",
     gradeMap: [
-      { fromGrade: "Grade 7",  toGrade: "Grade 8"  },
-      { fromGrade: "Grade 8",  toGrade: "Grade 9"  },
-      { fromGrade: "Grade 9",  toGrade: "Grade 10" },
-      { fromGrade: "Grade 10", toGrade: "Grade 11" },
-      { fromGrade: "Grade 11", toGrade: "Grade 12" },
+      { fromGrade: "Grade 11", toGrade: "Grade 12"  },
       { fromGrade: "Grade 12", toGrade: "Graduated" },
     ],
   });
-  const [actionLoading, setActionLoading] = useState(false);
-  const [promoteTarget, setPromoteTarget] = useState(null); // year object
-  const [previewData, setPreviewData] = useState(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [promoteStep, setPromoteStep] = useState(1); // 1=preview, 2=confirm
+
   useEscKey(onClose);
 
-  const load = () => {
-    setLoading(true);
-    api.get("/academic/years").then(d => setYears(d.years || [])).catch(() => {}).finally(() => setLoading(false));
-  };
-  useEffect(() => { load(); }, []);
+  // ── On mount: auto-ensure active year ──
+  useEffect(() => {
+    autoEnsure();
+  }, []);
 
-  const handleCreate = async () => {
-    if (!form.name || !form.startDate || !form.endDate) return alert("All fields required.");
+  const autoEnsure = async () => {
+    setLoading(true);
+    try {
+      const d = await api.request("POST", "/academic/years/auto-ensure", {});
+      if (d.created) setAutoMsg(`✨ Academic year ${d.year.name} was automatically created (June 8 start).`);
+      else if (d.activated) setAutoMsg(`✅ Academic year ${d.year.name} re-activated.`);
+      setActiveYear(d.year);
+      setEditEndDate(d.year.endDate ? d.year.endDate.slice(0,10) : "");
+      await loadYears();
+    } catch(e) {
+      await loadYears();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadYears = async () => {
+    const d = await api.get("/academic/years");
+    const ys = d.years || [];
+    setYears(ys);
+    const active = ys.find(y => y.isActive);
+    if (active) {
+      setActiveYear(active);
+      setEditEndDate(active.endDate ? active.endDate.slice(0,10) : "");
+    }
+  };
+
+  const handleSaveEndDate = async () => {
+    if (!activeYear || !editEndDate) return;
     setActionLoading(true);
     try {
-      await api.request("POST", "/academic/years", form);
-      load(); setView("list");
-    } catch (e) { alert(e.message); }
+      const d = await api.request("PATCH", `/academic/years/${activeYear._id}/end-date`, { endDate: editEndDate });
+      setActiveYear(d.year);
+      setEditingEndDate(false);
+      setAutoMsg("✅ End date updated.");
+      await loadYears();
+    } catch(e) { alert(e.message); }
     finally { setActionLoading(false); }
   };
 
@@ -4734,8 +4783,8 @@ function AcademicYearManager({ onClose }) {
     setActionLoading(true);
     try {
       const d = await api.request("PATCH", `/academic/years/${id}/activate`);
-      alert(d.message); load();
-    } catch (e) { alert(e.message); }
+      alert(d.message); await loadYears();
+    } catch(e) { alert(e.message); }
     finally { setActionLoading(false); }
   };
 
@@ -4744,8 +4793,18 @@ function AcademicYearManager({ onClose }) {
     setActionLoading(true);
     try {
       const d = await api.request("PATCH", `/academic/years/${id}/archive`);
-      alert(d.message); load();
-    } catch (e) { alert(e.message); }
+      alert(d.message); await loadYears();
+    } catch(e) { alert(e.message); }
+    finally { setActionLoading(false); }
+  };
+
+  const handleCreate = async () => {
+    if (!form.name || !form.startDate || !form.endDate) return alert("All fields required.");
+    setActionLoading(true);
+    try {
+      await api.request("POST", "/academic/years", form);
+      await loadYears(); setShowCreate(false);
+    } catch(e) { alert(e.message); }
     finally { setActionLoading(false); }
   };
 
@@ -4758,7 +4817,7 @@ function AcademicYearManager({ onClose }) {
     try {
       const d = await api.get(`/academic/years/${year._id}/preview-promote`);
       setPreviewData(d);
-    } catch (e) { alert(e.message); setView("list"); }
+    } catch(e) { alert(e.message); setView("list"); }
     finally { setPreviewLoading(false); }
   };
 
@@ -4768,316 +4827,480 @@ function AcademicYearManager({ onClose }) {
     try {
       const d = await api.request("POST", `/academic/years/${promoteTarget._id}/promote`);
       alert(d.message);
-      load(); setView("list"); setPromoteTarget(null); setPreviewData(null);
-    } catch (e) { alert(e.message); }
+      await loadYears(); setView("list"); setPromoteTarget(null); setPreviewData(null);
+    } catch(e) { alert(e.message); }
     finally { setActionLoading(false); }
   };
 
-  const updateGradeMap = (i, field, val) => {
-    setForm(f => {
-      const gm = [...f.gradeMap];
-      gm[i] = { ...gm[i], [field]: val };
-      return { ...f, gradeMap: gm };
-    });
+  // ── Batch CSV Parsing ──
+  const handleBatchCSV = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setCsvError("");
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target.result;
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) { setCsvError("CSV must have a header row and at least one student."); return; }
+      const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/[^a-z0-9_]/g,"_"));
+      const rows = [];
+      for (let i = 1; i < lines.length; i++) {
+        const vals = lines[i].split(",").map(v => v.trim().replace(/^"|"$/g,""));
+        if (vals.length < 2 || !vals.join("").trim()) continue;
+        const row = {};
+        headers.forEach((h,j) => { row[h] = vals[j] || ""; });
+        rows.push(row);
+      }
+      if (rows.length === 0) { setCsvError("No valid rows found."); return; }
+      setBatchParsed(rows);
+      setCsvError(`✓ ${rows.length} student${rows.length!==1?"s":""} parsed from CSV`);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
   };
 
-  // Auto-fill year name from dates
-  const autoFillName = (startDate, endDate) => {
-    if (startDate && endDate) {
-      const sy = new Date(startDate).getFullYear();
-      const ey = new Date(endDate).getFullYear();
-      if (sy !== ey) return `${sy}-${ey}`;
-      return `${sy}`;
-    }
-    return "";
+  const downloadTemplate = () => {
+    const header = "name,email,student_id,section,strand";
+    const sample = [
+      "Juan dela Cruz,juan.delacruz@school.edu,2024-0001,Gold,STEM",
+      "Maria Santos,maria.santos@school.edu,2024-0002,Silver,HUMSS",
+    ];
+    const csv = [header, ...sample].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = "grade11_batch_template.csv"; a.click();
+    URL.revokeObjectURL(url);
   };
 
-  const clrGreen  = "var(--green)";
-  const clrAmber  = "var(--amber)";
-  const clrRed    = "var(--red)";
-  const clrMuted  = "var(--muted)";
+  const handleBatchRegister = async () => {
+    const rows = batchParsed.length > 0 ? batchParsed : batchRows;
+    if (rows.length === 0) return alert("No student data to register. Upload a CSV first.");
+    if (!window.confirm(`Register ${rows.length} Grade 11 students? They will receive default password: ${batchDefaultPw}`)) return;
+    setBatchLoading(true);
+    try {
+      const d = await api.request("POST", "/admin/batch-register", {
+        students: rows.map(r => ({ ...r, section: r.section || batchSection || "" })),
+        academicYear: activeYear?.name || "",
+        defaultPassword: batchDefaultPw,
+      });
+      setBatchResult(d);
+    } catch(e) { alert(e.message); }
+    finally { setBatchLoading(false); }
+  };
+
+  // ── Manual row adder ──
+  const addManualRow = () => setBatchRows(r => [...r, { name:"", email:"", student_id:"", section: batchSection, strand:"" }]);
+  const updateRow = (i, field, val) => setBatchRows(r => { const n=[...r]; n[i]={...n[i],[field]:val}; return n; });
+  const removeRow = (i) => setBatchRows(r => r.filter((_,j)=>j!==i));
+
+  const C = {
+    green: "var(--green)", amber: "var(--amber)", red: "var(--red)",
+    muted: "var(--muted)", ink: "var(--ink)", border: "var(--border)",
+    surface: "var(--surface)", surface2: "var(--surface2)",
+    radius: "var(--radius-sm)", accent: "var(--accent)",
+  };
+
+  const pill = (label, color, bg) => (
+    <span style={{ fontSize:"0.7rem", padding:"2px 8px", borderRadius:20, background: bg||color+"22", color, fontWeight:700, border:`1px solid ${color}` }}>{label}</span>
+  );
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box" style={{ maxWidth: 600, width: "96vw" }} onClick={e => e.stopPropagation()}>
+      <div className="modal-box" style={{ maxWidth:620, width:"96vw", maxHeight:"90vh", overflowY:"auto" }} onClick={e=>e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="modal-title">📅 Academic Year Management</h2>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
-        <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div className="modal-body" style={{ display:"flex", flexDirection:"column", gap:14 }}>
 
-          {/* Nav tabs */}
-          {view !== "promote" && (
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className={`btn btn-sm ${view === "list" ? "btn-primary" : "btn-ghost"}`} onClick={() => setView("list")}>📋 Academic Years</button>
-              <button className={`btn btn-sm ${view === "create" ? "btn-primary" : "btn-ghost"}`} onClick={() => setView("create")}>＋ New Year</button>
+          {/* Auto-create message */}
+          {autoMsg && (
+            <div style={{ padding:"10px 14px", borderRadius:C.radius, background:"var(--green-lt)", border:`1px solid ${C.green}`, fontSize:"0.83rem", color:C.ink }}>
+              {autoMsg}
             </div>
           )}
 
-          {/* ── LIST VIEW ── */}
+          {/* Nav */}
+          {view !== "promote" && (
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              {[
+                ["list",  "📋 School Years"],
+                ["batch", "🎓 Register Grade 11"],
+              ].map(([v,l]) => (
+                <button key={v} className={`btn btn-sm ${view===v?"btn-primary":"btn-ghost"}`} onClick={()=>{ setView(v); setBatchResult(null); }}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* ═══════════════ LIST VIEW ═══════════════ */}
           {view === "list" && (
-            loading
-              ? <div style={{ textAlign: "center", padding: "20px" }}><Spinner size={22} /></div>
-              : years.length === 0
-                ? <div style={{ textAlign: "center", padding: "30px", color: clrMuted }}>No academic years yet. Create one to get started.</div>
-                : <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    {years.map(y => (
-                      <div key={y._id} style={{
-                        padding: "14px 16px", borderRadius: "var(--radius-sm)",
-                        border: `2px solid ${y.isActive ? clrGreen : "var(--border)"}`,
-                        background: y.isActive ? "var(--green-lt)" : "var(--surface2)",
-                      }}>
-                        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 700, fontSize: "0.92rem", color: "var(--ink)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                              {y.name}
-                              {y.isActive && <span style={{ fontSize: "0.7rem", padding: "2px 8px", borderRadius: 20, background: clrGreen, color: "#fff", fontWeight: 700 }}>● ACTIVE</span>}
-                              {y.archivedAt && <span style={{ fontSize: "0.7rem", padding: "2px 8px", borderRadius: 20, background: "var(--mgray)", color: "var(--gray)", fontWeight: 700 }}>ARCHIVED</span>}
-                              {y.promotedAt && !y.archivedAt && <span style={{ fontSize: "0.7rem", padding: "2px 8px", borderRadius: 20, background: "var(--amber-lt)", color: clrAmber, fontWeight: 700, border: `1px solid ${clrAmber}` }}>✓ PROMOTED</span>}
-                            </div>
-                            <div style={{ fontSize: "0.75rem", color: clrMuted, marginTop: 3 }}>
-                              {new Date(y.startDate).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })} — {new Date(y.endDate).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
-                              &nbsp;·&nbsp;{y.semester} Semester
-                            </div>
-                            {y.promotedAt && (
-                              <div style={{ fontSize: "0.73rem", color: clrMuted, marginTop: 2 }}>
-                                Promoted {new Date(y.promotedAt).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
-                                {y.promotedCount > 0 && ` · ${y.promotedCount} advanced`}
-                                {y.graduatedCount > 0 && ` · ${y.graduatedCount} graduated`}
-                              </div>
-                            )}
-                          </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+
+              {/* Active Year Card */}
+              {loading ? <div style={{ textAlign:"center", padding:20 }}><Spinner size={22}/></div>
+              : activeYear ? (
+                <div style={{ padding:"16px", borderRadius:C.radius, border:`2px solid ${C.green}`, background:"var(--green-lt)" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10, flexWrap:"wrap" }}>
+                    <div style={{ fontWeight:800, fontSize:"1rem", color:C.ink }}>{activeYear.name}</div>
+                    {pill("● ACTIVE", C.green, C.green+"33")}
+                    {activeYear.promotedAt && pill("✓ PROMOTED", C.amber)}
+                  </div>
+
+                  {/* Start date — fixed June 8 */}
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+                    <div>
+                      <div style={{ fontSize:"0.72rem", color:C.muted, fontWeight:700, textTransform:"uppercase", marginBottom:3 }}>Start Date</div>
+                      <div style={{ fontSize:"0.88rem", fontWeight:600, color:C.ink }}>
+                        {new Date(activeYear.startDate).toLocaleDateString("en-PH",{month:"long",day:"numeric",year:"numeric"})}
+                      </div>
+                      <div style={{ fontSize:"0.72rem", color:C.muted }}>Fixed · June 8</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize:"0.72rem", color:C.muted, fontWeight:700, textTransform:"uppercase", marginBottom:3 }}>End Date</div>
+                      {editingEndDate ? (
+                        <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                          <input className="form-input" type="date" value={editEndDate}
+                            onChange={e=>setEditEndDate(e.target.value)}
+                            style={{ fontSize:"0.83rem", padding:"4px 8px" }}/>
+                          <button className="btn btn-primary btn-sm" onClick={handleSaveEndDate} disabled={actionLoading}>
+                            {actionLoading?<Spinner size={12}/>:"Save"}
+                          </button>
+                          <button className="btn btn-ghost btn-sm" onClick={()=>setEditingEndDate(false)}>✕</button>
                         </div>
-                        {!y.archivedAt && (
-                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                            {!y.isActive && (
-                              <button className="btn btn-primary btn-sm" onClick={() => handleActivate(y._id)} disabled={actionLoading}>
-                                ✓ Set Active
-                              </button>
-                            )}
-                            {y.isActive && !y.promotedAt && (
-                              <button
-                                className="btn btn-sm"
-                                style={{ background: clrAmber, color: "#fff", border: "none", cursor: "pointer", padding: "6px 12px", borderRadius: "var(--radius-sm)", fontWeight: 600, fontSize: "0.8rem" }}
-                                onClick={() => openPromoteWizard(y)}
-                                disabled={actionLoading}
-                              >
-                                🎓 Promote School Year
-                              </button>
-                            )}
-                            {y.promotedAt && (
-                              <div style={{ fontSize: "0.75rem", color: clrGreen, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
-                                ✓ Promotion complete
-                              </div>
-                            )}
-                            <button className="btn btn-ghost btn-sm" style={{ color: clrMuted }} onClick={() => handleArchive(y._id)} disabled={actionLoading}>
-                              📦 Archive
-                            </button>
+                      ) : (
+                        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                          <div style={{ fontSize:"0.88rem", fontWeight:600, color:C.ink }}>
+                            {new Date(activeYear.endDate).toLocaleDateString("en-PH",{month:"long",day:"numeric",year:"numeric"})}
                           </div>
-                        )}
-                        {/* Promotion summary */}
-                        {y.promotionSummary && y.promotionSummary.length > 0 && (
-                          <div style={{ marginTop: 10, padding: "8px 10px", background: "var(--surface)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
-                            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: clrMuted, marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.05em" }}>Promotion Summary</div>
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                              {y.promotionSummary.map((s, i) => (
-                                <span key={i} style={{
-                                  fontSize: "0.72rem", padding: "2px 8px", borderRadius: 12,
-                                  background: s.graduated ? "var(--red-lt, #fee)" : "var(--green-lt)",
-                                  color: s.graduated ? clrRed : clrGreen,
-                                  border: `1px solid ${s.graduated ? clrRed : clrGreen}`,
-                                  fontWeight: 600,
-                                }}>
-                                  {s.fromGrade} → {s.toGrade}: {s.count}
+                          {!activeYear.promotedAt && (
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize:"0.72rem", padding:"2px 6px" }}
+                              onClick={()=>setEditingEndDate(true)}>✏️ Edit</button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Grade map display */}
+                  <div style={{ fontSize:"0.72rem", color:C.muted, marginBottom:8, fontWeight:700, textTransform:"uppercase" }}>Grade Promotion Map</div>
+                  <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
+                    {(activeYear.gradeMap||[]).map((g,i)=>(
+                      <span key={i} style={{ fontSize:"0.77rem", padding:"3px 10px", borderRadius:12,
+                        background: g.toGrade.toLowerCase()==="graduated" ? "#fee":"var(--surface)",
+                        color: g.toGrade.toLowerCase()==="graduated" ? C.red : C.ink,
+                        border:`1px solid ${g.toGrade.toLowerCase()==="graduated" ? C.red : C.border}`,
+                        fontWeight:600 }}>
+                        {g.fromGrade} → {g.toGrade}
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Actions */}
+                  {!activeYear.promotedAt && (
+                    <button
+                      className="btn btn-sm"
+                      style={{ background:C.amber, color:"#fff", border:"none", cursor:"pointer", padding:"8px 16px", borderRadius:C.radius, fontWeight:700, fontSize:"0.83rem" }}
+                      onClick={()=>openPromoteWizard(activeYear)} disabled={actionLoading}>
+                      🎓 Promote School Year
+                    </button>
+                  )}
+                  {activeYear.promotedAt && (
+                    <div style={{ fontSize:"0.8rem", color:C.green, fontWeight:600 }}>
+                      ✓ Promoted on {new Date(activeYear.promotedAt).toLocaleDateString("en-PH",{month:"short",day:"numeric",year:"numeric"})}
+                      {activeYear.promotedCount > 0 && ` · ${activeYear.promotedCount} advanced`}
+                      {activeYear.graduatedCount > 0 && ` · ${activeYear.graduatedCount} graduated`}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ padding:"16px", borderRadius:C.radius, border:`1px dashed ${C.border}`, textAlign:"center", color:C.muted, fontSize:"0.85rem" }}>
+                  No active academic year. Creating one automatically…
+                </div>
+              )}
+
+              {/* Past years */}
+              {years.filter(y => !y.isActive).length > 0 && (
+                <div>
+                  <div style={{ fontSize:"0.72rem", color:C.muted, fontWeight:700, textTransform:"uppercase", marginBottom:8 }}>Past Years</div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                    {years.filter(y => !y.isActive).map(y => (
+                      <div key={y._id} style={{ padding:"10px 14px", borderRadius:C.radius, border:`1px solid ${C.border}`, background:C.surface2, display:"flex", alignItems:"center", gap:10 }}>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontWeight:700, fontSize:"0.85rem", color:C.ink, display:"flex", gap:8, alignItems:"center" }}>
+                            {y.name}
+                            {y.archivedAt && pill("ARCHIVED","var(--gray)")}
+                            {y.promotedAt && pill("PROMOTED", C.amber)}
+                          </div>
+                          <div style={{ fontSize:"0.72rem", color:C.muted, marginTop:2 }}>
+                            {new Date(y.startDate).toLocaleDateString("en-PH",{month:"short",day:"numeric",year:"numeric"})} — {new Date(y.endDate).toLocaleDateString("en-PH",{month:"short",day:"numeric",year:"numeric"})}
+                          </div>
+                          {y.promotionSummary?.length > 0 && (
+                            <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginTop:4 }}>
+                              {y.promotionSummary.map((s,i)=>(
+                                <span key={i} style={{ fontSize:"0.7rem", padding:"1px 7px", borderRadius:10,
+                                  background: s.graduated ? "#fee" : "var(--green-lt)",
+                                  color: s.graduated ? C.red : C.green, fontWeight:600 }}>
+                                  {s.fromGrade}→{s.toGrade}: {s.count}
                                 </span>
                               ))}
                             </div>
-                          </div>
+                          )}
+                        </div>
+                        {!y.archivedAt && (
+                          <button className="btn btn-ghost btn-sm" style={{ color:C.muted }} onClick={()=>handleArchive(y._id)} disabled={actionLoading}>📦 Archive</button>
                         )}
                       </div>
                     ))}
                   </div>
-          )}
-
-          {/* ── CREATE VIEW ── */}
-          {view === "create" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div className="form-group" style={{ gridColumn: "1/-1" }}>
-                  <label className="form-label">Year Name *</label>
-                  <input className="form-input" placeholder="e.g. 2025-2026"
-                    value={form.name}
-                    onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Start Date *</label>
-                  <input className="form-input" type="date" value={form.startDate}
-                    onChange={e => {
-                      const sd = e.target.value;
-                      setForm(f => ({ ...f, startDate: sd, name: f.name || autoFillName(sd, f.endDate) }));
-                    }} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">End Date *</label>
-                  <input className="form-input" type="date" value={form.endDate}
-                    onChange={e => {
-                      const ed = e.target.value;
-                      setForm(f => ({ ...f, endDate: ed, name: f.name || autoFillName(f.startDate, ed) }));
-                    }} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Semester</label>
-                  <select className="form-input" value={form.semester} onChange={e => setForm(f => ({ ...f, semester: e.target.value }))}>
-                    <option value="Full Year">Full Year</option>
-                    <option value="1st">1st Semester</option>
-                    <option value="2nd">2nd Semester</option>
-                    <option value="Summer">Summer</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="form-label" style={{ marginBottom: 6 }}>🎓 Grade Promotion Map</label>
-                <div style={{ fontSize: "0.78rem", color: clrMuted, marginBottom: 8 }}>
-                  Define how each grade advances. Set <strong>To</strong> as <code>Graduated</code> for Grade 12 — those accounts will be removed after promotion but their attendance records are preserved.
-                </div>
-                {form.gradeMap.map((gm, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                    <input className="form-input" style={{ flex: 1, fontSize: "0.83rem" }}
-                      placeholder="From (e.g. Grade 11)" value={gm.fromGrade}
-                      onChange={e => updateGradeMap(i, "fromGrade", e.target.value)} />
-                    <span style={{ color: clrMuted, flexShrink: 0 }}>→</span>
-                    <input className="form-input"
-                      style={{ flex: 1, fontSize: "0.83rem", color: gm.toGrade.toLowerCase() === "graduated" ? clrRed : "inherit", fontWeight: gm.toGrade.toLowerCase() === "graduated" ? 700 : 400 }}
-                      placeholder="To (e.g. Grade 12 or Graduated)" value={gm.toGrade}
-                      onChange={e => updateGradeMap(i, "toGrade", e.target.value)} />
-                    <button onClick={() => setForm(f => ({ ...f, gradeMap: f.gradeMap.filter((_, j) => j !== i) }))}
-                      style={{ background: "none", border: "none", cursor: "pointer", color: clrRed, flexShrink: 0 }}>✕</button>
-                  </div>
-                ))}
-                <button className="btn btn-ghost btn-sm"
-                  onClick={() => setForm(f => ({ ...f, gradeMap: [...f.gradeMap, { fromGrade: "", toGrade: "" }] }))}>
-                  + Add Grade Level
-                </button>
-              </div>
-
-              <button className="btn btn-primary" onClick={handleCreate} disabled={actionLoading}>
-                {actionLoading ? <Spinner size={16} /> : "Create Academic Year"}
-              </button>
-            </div>
-          )}
-
-          {/* ── PROMOTE WIZARD ── */}
-          {view === "promote" && promoteTarget && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {/* Wizard header */}
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <button className="btn btn-ghost btn-sm" onClick={() => { setView("list"); setPromoteTarget(null); setPreviewData(null); }}>← Back</button>
-                <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--ink)" }}>
-                  🎓 Promote School Year — {promoteTarget.name}
-                </div>
-              </div>
-
-              {/* Step indicators */}
-              <div style={{ display: "flex", gap: 0, borderRadius: "var(--radius-sm)", overflow: "hidden", border: "1px solid var(--border)" }}>
-                {[["1", "Preview Changes"], ["2", "Confirm & Execute"]].map(([num, label], i) => (
-                  <div key={num} style={{
-                    flex: 1, padding: "8px 12px", textAlign: "center",
-                    background: promoteStep === i + 1 ? "var(--accent)" : "var(--surface2)",
-                    color: promoteStep === i + 1 ? "#fff" : clrMuted,
-                    fontSize: "0.78rem", fontWeight: 600,
-                    borderRight: i === 0 ? "1px solid var(--border)" : "none",
-                  }}>
-                    Step {num}: {label}
-                  </div>
-                ))}
-              </div>
-
-              {/* Step 1: Preview */}
-              {promoteStep === 1 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {previewLoading
-                    ? <div style={{ textAlign: "center", padding: "24px" }}><Spinner size={22} /></div>
-                    : previewData ? (
-                      <>
-                        <div style={{ fontSize: "0.83rem", color: "var(--ink3)" }}>
-                          Here's what will happen when you promote this school year:
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                          {previewData.preview.map((p, i) => (
-                            <div key={i} style={{
-                              display: "flex", alignItems: "center", gap: 10,
-                              padding: "10px 14px", borderRadius: "var(--radius-sm)",
-                              background: p.isGraduating ? "#fff5f5" : "var(--surface)",
-                              border: `1px solid ${p.isGraduating ? clrRed : "var(--border)"}`,
-                            }}>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 700, fontSize: "0.85rem", color: p.isGraduating ? clrRed : "var(--ink)", display: "flex", alignItems: "center", gap: 6 }}>
-                                  {p.fromGrade}
-                                  <span style={{ color: clrMuted, fontWeight: 400 }}>→</span>
-                                  {p.toGrade}
-                                  {p.isGraduating && <span style={{ fontSize: "0.72rem", padding: "1px 6px", borderRadius: 10, background: clrRed, color: "#fff" }}>Accounts Deleted</span>}
-                                </div>
-                                <div style={{ fontSize: "0.73rem", color: clrMuted, marginTop: 2 }}>
-                                  {p.count} student{p.count !== 1 ? "s" : ""} affected
-                                  {p.isGraduating && " · Attendance records preserved for leaderboard"}
-                                </div>
-                              </div>
-                              <div style={{ fontSize: "1.5rem", fontWeight: 800, color: p.isGraduating ? clrRed : clrGreen }}>
-                                {p.count}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                        {previewData.uncoveredCount > 0 && (
-                          <div style={{ padding: "10px 14px", borderRadius: "var(--radius-sm)", background: "var(--amber-lt)", border: `1px solid ${clrAmber}`, fontSize: "0.8rem", color: "var(--ink3)" }}>
-                            ⚠️ <strong>{previewData.uncoveredCount} student{previewData.uncoveredCount !== 1 ? "s" : ""}</strong> are not covered by the grade map and will not be promoted.
-                            {previewData.uncoveredSample?.length > 0 && (
-                              <span> (e.g. {previewData.uncoveredSample.map(s => `${s.name} (${s.grade || "no grade"})`).join(", ")})</span>
-                            )}
-                          </div>
-                        )}
-                        <button className="btn btn-primary" onClick={() => setPromoteStep(2)}>
-                          Continue to Confirmation →
-                        </button>
-                      </>
-                    ) : null
-                  }
                 </div>
               )}
 
-              {/* Step 2: Confirm */}
+              {/* Manual create toggle */}
+              <button className="btn btn-ghost btn-sm" style={{ alignSelf:"flex-start", color:C.muted }}
+                onClick={()=>setShowCreate(v=>!v)}>
+                {showCreate ? "▲ Hide manual create" : "＋ Manually create a new year"}
+              </button>
+
+              {showCreate && (
+                <div style={{ display:"flex", flexDirection:"column", gap:10, padding:"14px", borderRadius:C.radius, border:`1px solid ${C.border}`, background:C.surface2 }}>
+                  <div style={{ fontWeight:700, fontSize:"0.85rem", color:C.ink }}>Create Academic Year Manually</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                    <div className="form-group" style={{ gridColumn:"1/-1" }}>
+                      <label className="form-label">Year Name *</label>
+                      <input className="form-input" placeholder="e.g. 2026-2027" value={form.name}
+                        onChange={e=>setForm(f=>({...f,name:e.target.value}))}/>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Start Date *</label>
+                      <input className="form-input" type="date" value={form.startDate}
+                        onChange={e=>setForm(f=>({...f,startDate:e.target.value}))}/>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">End Date *</label>
+                      <input className="form-input" type="date" value={form.endDate}
+                        onChange={e=>setForm(f=>({...f,endDate:e.target.value}))}/>
+                    </div>
+                  </div>
+                  <button className="btn btn-primary" onClick={handleCreate} disabled={actionLoading}>
+                    {actionLoading?<Spinner size={16}/>:"Create Year"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ═══════════════ PROMOTE WIZARD ═══════════════ */}
+          {view === "promote" && promoteTarget && (
+            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <button className="btn btn-ghost btn-sm" onClick={()=>{ setView("list"); setPromoteTarget(null); setPreviewData(null); }}>← Back</button>
+                <div style={{ fontWeight:700, fontSize:"0.9rem", color:C.ink }}>🎓 Promote School Year — {promoteTarget.name}</div>
+              </div>
+
+              <div style={{ display:"flex", gap:0, borderRadius:C.radius, overflow:"hidden", border:`1px solid ${C.border}` }}>
+                {[["1","Preview"],["2","Confirm"]].map(([num,label],i)=>(
+                  <div key={num} style={{
+                    flex:1, padding:"8px 12px", textAlign:"center",
+                    background: promoteStep===i+1 ? C.accent : C.surface2,
+                    color: promoteStep===i+1 ? "#fff" : C.muted,
+                    fontSize:"0.78rem", fontWeight:600,
+                    borderRight: i===0 ? `1px solid ${C.border}` : "none",
+                  }}>Step {num}: {label}</div>
+                ))}
+              </div>
+
+              {promoteStep === 1 && (
+                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                  {previewLoading ? <div style={{ textAlign:"center", padding:24 }}><Spinner size={22}/></div>
+                  : previewData ? (
+                    <>
+                      <div style={{ fontSize:"0.83rem", color:"var(--ink3)" }}>Changes that will happen when you promote:</div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                        {previewData.preview.map((p,i)=>(
+                          <div key={i} style={{
+                            display:"flex", alignItems:"center", gap:10, padding:"10px 14px",
+                            borderRadius:C.radius, background: p.isGraduating?"#fff5f5":C.surface,
+                            border:`1px solid ${p.isGraduating?C.red:C.border}`,
+                          }}>
+                            <div style={{ flex:1 }}>
+                              <div style={{ fontWeight:700, fontSize:"0.85rem", color:p.isGraduating?C.red:C.ink, display:"flex", alignItems:"center", gap:6 }}>
+                                {p.fromGrade} <span style={{ color:C.muted, fontWeight:400 }}>→</span> {p.toGrade}
+                                {p.isGraduating && <span style={{ fontSize:"0.7rem", padding:"1px 6px", borderRadius:10, background:C.red, color:"#fff" }}>Accounts Deleted</span>}
+                              </div>
+                              <div style={{ fontSize:"0.73rem", color:C.muted, marginTop:2 }}>
+                                {p.count} student{p.count!==1?"s":""} affected
+                                {p.isGraduating && " · Attendance records preserved"}
+                              </div>
+                            </div>
+                            <div style={{ fontSize:"1.5rem", fontWeight:800, color:p.isGraduating?C.red:C.green }}>{p.count}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {previewData.uncoveredCount > 0 && (
+                        <div style={{ padding:"10px 14px", borderRadius:C.radius, background:"var(--amber-lt)", border:`1px solid ${C.amber}`, fontSize:"0.8rem", color:"var(--ink3)" }}>
+                          ⚠️ <strong>{previewData.uncoveredCount}</strong> student{previewData.uncoveredCount!==1?"s":""} not in grade map — will not be promoted.
+                        </div>
+                      )}
+                      <button className="btn btn-primary" onClick={()=>setPromoteStep(2)}>Continue →</button>
+                    </>
+                  ) : null}
+                </div>
+              )}
+
               {promoteStep === 2 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  <div style={{
-                    padding: "16px", borderRadius: "var(--radius-sm)",
-                    background: "#fff5f5", border: `2px solid ${clrRed}`,
-                  }}>
-                    <div style={{ fontWeight: 700, fontSize: "0.9rem", color: clrRed, marginBottom: 8 }}>⚠️ This action cannot be undone</div>
-                    <ul style={{ margin: 0, paddingLeft: 18, color: "var(--ink3)", fontSize: "0.83rem", lineHeight: 1.7 }}>
-                      <li>Students in Grade 11 will be moved to Grade 12</li>
-                      <li>Students in Grade 12 will be <strong>permanently deleted</strong></li>
-                      <li>All attendance records of graduates are <strong>preserved</strong> for leaderboard history</li>
-                      <li>Lower grades will advance one level up</li>
+                <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                  <div style={{ padding:16, borderRadius:C.radius, background:"#fff5f5", border:`2px solid ${C.red}` }}>
+                    <div style={{ fontWeight:700, fontSize:"0.9rem", color:C.red, marginBottom:8 }}>⚠️ This cannot be undone</div>
+                    <ul style={{ margin:0, paddingLeft:18, color:"var(--ink3)", fontSize:"0.83rem", lineHeight:1.7 }}>
+                      <li>Grade 11 students → Grade 12</li>
+                      <li>Grade 12 students → <strong>permanently deleted</strong></li>
+                      <li>All attendance records of graduates are <strong>preserved</strong></li>
                     </ul>
                   </div>
-                  <div style={{ fontSize: "0.85rem", color: "var(--ink3)", textAlign: "center" }}>
-                    Promote school year <strong>{promoteTarget.name}</strong>?
-                  </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setPromoteStep(1)} disabled={actionLoading}>
-                      ← Back
-                    </button>
-                    <button
-                      className="btn btn-sm"
-                      style={{ flex: 2, background: clrRed, color: "#fff", border: "none", cursor: "pointer", padding: "10px 16px", borderRadius: "var(--radius-sm)", fontWeight: 700, fontSize: "0.88rem" }}
-                      onClick={handlePromote}
-                      disabled={actionLoading}
-                    >
-                      {actionLoading ? <Spinner size={16} /> : "🎓 Confirm & Promote School Year"}
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button className="btn btn-ghost" style={{ flex:1 }} onClick={()=>setPromoteStep(1)} disabled={actionLoading}>← Back</button>
+                    <button className="btn btn-sm" disabled={actionLoading}
+                      style={{ flex:2, background:C.red, color:"#fff", border:"none", cursor:"pointer", padding:"10px 16px", borderRadius:C.radius, fontWeight:700, fontSize:"0.88rem" }}
+                      onClick={handlePromote}>
+                      {actionLoading?<Spinner size={16}/>:"🎓 Confirm & Promote School Year"}
                     </button>
                   </div>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* ═══════════════ BATCH REGISTER ═══════════════ */}
+          {view === "batch" && (
+            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+
+              {/* Context banner */}
+              <div style={{ padding:"12px 14px", borderRadius:C.radius, background:"var(--accent-lt,#eff6ff)", border:`1px solid ${C.accent}`, fontSize:"0.82rem", color:C.ink }}>
+                <strong>Register incoming Grade 11 students</strong> for academic year <strong>{activeYear?.name || "—"}</strong>.
+                Students are auto-verified and must change their password on first login.
+              </div>
+
+              {/* Result */}
+              {batchResult && (
+                <div style={{ padding:"14px", borderRadius:C.radius, border:`1px solid ${C.green}`, background:"var(--green-lt)" }}>
+                  <div style={{ fontWeight:700, color:C.green, marginBottom:6 }}>✅ {batchResult.message}</div>
+                  <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                    <span style={{ fontSize:"0.78rem" }}>✓ Created: <strong>{batchResult.created?.length}</strong></span>
+                    <span style={{ fontSize:"0.78rem" }}>⏭ Skipped: <strong>{batchResult.skipped?.length}</strong></span>
+                    {batchResult.errors?.length > 0 && <span style={{ fontSize:"0.78rem", color:C.red }}>✗ Errors: <strong>{batchResult.errors?.length}</strong></span>}
+                  </div>
+                  <div style={{ fontSize:"0.77rem", marginTop:8, color:C.muted }}>
+                    Default password: <code style={{ background:"var(--surface)", padding:"2px 6px", borderRadius:4 }}>{batchResult.defaultPassword}</code>
+                    <span> — students must change this on first login.</span>
+                  </div>
+                  {batchResult.skipped?.length > 0 && (
+                    <div style={{ marginTop:8, fontSize:"0.75rem", color:C.muted }}>
+                      Skipped: {batchResult.skipped.slice(0,5).map(s=>s.email).join(", ")}{batchResult.skipped.length>5?` +${batchResult.skipped.length-5} more`:""}
+                    </div>
+                  )}
+                  <button className="btn btn-ghost btn-sm" style={{ marginTop:10 }} onClick={()=>{ setBatchResult(null); setBatchParsed([]); setBatchRows([]); setCsvError(""); }}>
+                    Register more students
+                  </button>
+                </div>
+              )}
+
+              {!batchResult && (
+                <>
+                  {/* Default password & section */}
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                    <div className="form-group">
+                      <label className="form-label">Default Section (optional)</label>
+                      <input className="form-input" placeholder="e.g. Gold, STEM-A"
+                        value={batchSection} onChange={e=>setBatchSection(e.target.value)}/>
+                      <div style={{ fontSize:"0.72rem", color:C.muted, marginTop:3 }}>Applied when CSV has no section column</div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Default Password</label>
+                      <input className="form-input" value={batchDefaultPw}
+                        onChange={e=>setBatchDefaultPw(e.target.value)}/>
+                      <div style={{ fontSize:"0.72rem", color:C.muted, marginTop:3 }}>Students must change on first login</div>
+                    </div>
+                  </div>
+
+                  {/* CSV upload area */}
+                  <div style={{ padding:"14px 16px", borderRadius:C.radius, border:`2px dashed ${C.border}`, background:C.surface2 }}>
+                    <div style={{ fontWeight:700, fontSize:"0.85rem", color:C.ink, marginBottom:6 }}>📁 Upload CSV File</div>
+                    <div style={{ fontSize:"0.78rem", color:C.muted, marginBottom:10 }}>
+                      Required columns: <code>name</code>, <code>email</code> · Optional: <code>student_id</code>, <code>section</code>, <code>strand</code>
+                    </div>
+                    <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                      <button className="btn btn-primary btn-sm" onClick={()=>batchFileRef.current?.click()}>
+                        📂 Choose CSV
+                      </button>
+                      <button className="btn btn-ghost btn-sm" onClick={downloadTemplate}>
+                        ⬇ Download Template
+                      </button>
+                      <input ref={batchFileRef} type="file" accept=".csv,.txt" style={{ display:"none" }} onChange={handleBatchCSV}/>
+                    </div>
+                    {csvError && (
+                      <div style={{ marginTop:8, fontSize:"0.8rem", color: csvError.startsWith("✓") ? C.green : C.red, fontWeight:600 }}>
+                        {csvError}
+                      </div>
+                    )}
+
+                    {/* Preview parsed rows */}
+                    {batchParsed.length > 0 && (
+                      <div style={{ marginTop:12 }}>
+                        <div style={{ fontSize:"0.75rem", color:C.muted, fontWeight:700, marginBottom:6, textTransform:"uppercase" }}>
+                          Preview ({batchParsed.length} students)
+                        </div>
+                        <div style={{ maxHeight:180, overflowY:"auto", display:"flex", flexDirection:"column", gap:4 }}>
+                          {batchParsed.slice(0,10).map((r,i)=>(
+                            <div key={i} style={{ display:"flex", gap:8, fontSize:"0.78rem", padding:"4px 8px", background:C.surface, borderRadius:4, border:`1px solid ${C.border}` }}>
+                              <span style={{ flex:1, fontWeight:600 }}>{r.name||r.name_||"—"}</span>
+                              <span style={{ flex:1, color:C.muted }}>{r.email||"—"}</span>
+                              <span style={{ color:C.muted }}>{r.section||batchSection||"—"}</span>
+                            </div>
+                          ))}
+                          {batchParsed.length > 10 && (
+                            <div style={{ fontSize:"0.75rem", color:C.muted, textAlign:"center", padding:"4px" }}>
+                              +{batchParsed.length-10} more rows
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Manual add fallback */}
+                  <div>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                      <div style={{ fontSize:"0.8rem", color:C.muted, fontWeight:600 }}>Or add manually</div>
+                      <button className="btn btn-ghost btn-sm" onClick={addManualRow}>＋ Add row</button>
+                    </div>
+                    {batchRows.length > 0 && (
+                      <div style={{ display:"flex", flexDirection:"column", gap:6, maxHeight:200, overflowY:"auto" }}>
+                        <div style={{ display:"grid", gridTemplateColumns:"2fr 2fr 1fr 1fr auto", gap:4, fontSize:"0.72rem", color:C.muted, fontWeight:700, textTransform:"uppercase", padding:"0 2px" }}>
+                          <span>Name</span><span>Email</span><span>Student ID</span><span>Section</span><span></span>
+                        </div>
+                        {batchRows.map((r,i)=>(
+                          <div key={i} style={{ display:"grid", gridTemplateColumns:"2fr 2fr 1fr 1fr auto", gap:4 }}>
+                            <input className="form-input" style={{ fontSize:"0.8rem", padding:"4px 8px" }} placeholder="Full name" value={r.name} onChange={e=>updateRow(i,"name",e.target.value)}/>
+                            <input className="form-input" style={{ fontSize:"0.8rem", padding:"4px 8px" }} placeholder="Email" value={r.email} onChange={e=>updateRow(i,"email",e.target.value)}/>
+                            <input className="form-input" style={{ fontSize:"0.8rem", padding:"4px 8px" }} placeholder="LRN/ID" value={r.student_id} onChange={e=>updateRow(i,"student_id",e.target.value)}/>
+                            <input className="form-input" style={{ fontSize:"0.8rem", padding:"4px 8px" }} placeholder="Section" value={r.section} onChange={e=>updateRow(i,"section",e.target.value)}/>
+                            <button onClick={()=>removeRow(i)} style={{ background:"none", border:"none", cursor:"pointer", color:C.red, fontSize:"1rem" }}>✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Submit */}
+                  {(batchParsed.length > 0 || batchRows.length > 0) && (
+                    <button className="btn btn-primary" onClick={handleBatchRegister} disabled={batchLoading}>
+                      {batchLoading ? <Spinner size={16}/> : `🎓 Register ${batchParsed.length || batchRows.length} Grade 11 Students`}
+                    </button>
+                  )}
+                </>
               )}
             </div>
           )}
