@@ -4695,22 +4695,30 @@ function AttendanceForecastPanel({ onClose }) {
 function AcademicYearManager({ onClose }) {
   const [years, setYears] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState("list");
-  const [form, setForm] = useState({ name:"", startDate:"", endDate:"", semester:"1st", gradeMap:[
-    {fromGrade:"Grade 7", toGrade:"Grade 8"},
-    {fromGrade:"Grade 8", toGrade:"Grade 9"},
-    {fromGrade:"Grade 9", toGrade:"Grade 10"},
-    {fromGrade:"Grade 10", toGrade:"Grade 11"},
-    {fromGrade:"Grade 11", toGrade:"Grade 12"},
-  ]});
-  const [promoting, setPromoting] = useState(null);
+  const [view, setView] = useState("list"); // "list" | "create" | "promote"
+  const [form, setForm] = useState({
+    name: "", startDate: "", endDate: "", semester: "Full Year",
+    gradeMap: [
+      { fromGrade: "Grade 7",  toGrade: "Grade 8"  },
+      { fromGrade: "Grade 8",  toGrade: "Grade 9"  },
+      { fromGrade: "Grade 9",  toGrade: "Grade 10" },
+      { fromGrade: "Grade 10", toGrade: "Grade 11" },
+      { fromGrade: "Grade 11", toGrade: "Grade 12" },
+      { fromGrade: "Grade 12", toGrade: "Graduated" },
+    ],
+  });
   const [actionLoading, setActionLoading] = useState(false);
+  const [promoteTarget, setPromoteTarget] = useState(null); // year object
+  const [previewData, setPreviewData] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [promoteStep, setPromoteStep] = useState(1); // 1=preview, 2=confirm
   useEscKey(onClose);
 
   const load = () => {
-    api.get("/academic/years").then(d=>setYears(d.years||[])).catch(()=>{}).finally(()=>setLoading(false));
+    setLoading(true);
+    api.get("/academic/years").then(d => setYears(d.years || [])).catch(() => {}).finally(() => setLoading(false));
   };
-  useEffect(()=>{ load(); },[]);
+  useEffect(() => { load(); }, []);
 
   const handleCreate = async () => {
     if (!form.name || !form.startDate || !form.endDate) return alert("All fields required.");
@@ -4718,7 +4726,7 @@ function AcademicYearManager({ onClose }) {
     try {
       await api.request("POST", "/academic/years", form);
       load(); setView("list");
-    } catch(e){ alert(e.message); }
+    } catch (e) { alert(e.message); }
     finally { setActionLoading(false); }
   };
 
@@ -4727,7 +4735,7 @@ function AcademicYearManager({ onClose }) {
     try {
       const d = await api.request("PATCH", `/academic/years/${id}/activate`);
       alert(d.message); load();
-    } catch(e){ alert(e.message); }
+    } catch (e) { alert(e.message); }
     finally { setActionLoading(false); }
   };
 
@@ -4737,130 +4745,343 @@ function AcademicYearManager({ onClose }) {
     try {
       const d = await api.request("PATCH", `/academic/years/${id}/archive`);
       alert(d.message); load();
-    } catch(e){ alert(e.message); }
+    } catch (e) { alert(e.message); }
     finally { setActionLoading(false); }
   };
 
-  const handlePromote = async (id) => {
-    if (!window.confirm("Promote students? This will update all students' grade levels based on the grade map. This cannot be undone.")) return;
+  const openPromoteWizard = async (year) => {
+    setPromoteTarget(year);
+    setPromoteStep(1);
+    setPreviewData(null);
+    setPreviewLoading(true);
+    setView("promote");
+    try {
+      const d = await api.get(`/academic/years/${year._id}/preview-promote`);
+      setPreviewData(d);
+    } catch (e) { alert(e.message); setView("list"); }
+    finally { setPreviewLoading(false); }
+  };
+
+  const handlePromote = async () => {
+    if (!promoteTarget) return;
     setActionLoading(true);
     try {
-      const d = await api.request("POST", `/academic/years/${id}/promote`);
-      alert("Promoted: " + d.promoted + " students. " + (d.results||[]).map(r=>r.from+" to "+r.to+": "+r.count).join(", "));
-      load();
-    } catch(e){ alert(e.message); }
+      const d = await api.request("POST", `/academic/years/${promoteTarget._id}/promote`);
+      alert(d.message);
+      load(); setView("list"); setPromoteTarget(null); setPreviewData(null);
+    } catch (e) { alert(e.message); }
     finally { setActionLoading(false); }
   };
 
   const updateGradeMap = (i, field, val) => {
     setForm(f => {
       const gm = [...f.gradeMap];
-      gm[i] = {...gm[i], [field]: val};
-      return {...f, gradeMap: gm};
+      gm[i] = { ...gm[i], [field]: val };
+      return { ...f, gradeMap: gm };
     });
   };
 
+  // Auto-fill year name from dates
+  const autoFillName = (startDate, endDate) => {
+    if (startDate && endDate) {
+      const sy = new Date(startDate).getFullYear();
+      const ey = new Date(endDate).getFullYear();
+      if (sy !== ey) return `${sy}-${ey}`;
+      return `${sy}`;
+    }
+    return "";
+  };
+
+  const clrGreen  = "var(--green)";
+  const clrAmber  = "var(--amber)";
+  const clrRed    = "var(--red)";
+  const clrMuted  = "var(--muted)";
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box" style={{maxWidth:580,width:"96vw"}} onClick={e=>e.stopPropagation()}>
+      <div className="modal-box" style={{ maxWidth: 600, width: "96vw" }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="modal-title">📅 Academic Year Management</h2>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
-        <div className="modal-body" style={{display:"flex",flexDirection:"column",gap:14}}>
-          <div style={{display:"flex",gap:8}}>
-            <button className={`btn btn-sm ${view==="list"?"btn-primary":"btn-ghost"}`} onClick={()=>setView("list")}>Academic Years</button>
-            <button className={`btn btn-sm ${view==="create"?"btn-primary":"btn-ghost"}`} onClick={()=>setView("create")}>+ New Year</button>
-          </div>
+        <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
-          {view === "list" ? (
-            loading ? <div style={{textAlign:"center",padding:"20px"}}><Spinner size={22}/></div>
-            : years.length === 0 ? (
-              <div style={{textAlign:"center",padding:"30px",color:"var(--muted)"}}>No academic years yet. Create one to get started.</div>
-            ) : (
-              <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                {years.map(y => (
-                  <div key={y._id} style={{padding:"14px 16px",borderRadius:"var(--radius-sm)",
-                    border:`2px solid ${y.isActive?"var(--green)":"var(--border)"}`,
-                    background:y.isActive?"var(--green-lt)":"var(--surface2)"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
-                      <div style={{flex:1}}>
-                        <div style={{fontWeight:700,fontSize:"0.92rem",color:"var(--ink)",display:"flex",alignItems:"center",gap:8}}>
-                          {y.name}
-                          {y.isActive && <span style={{fontSize:"0.7rem",padding:"2px 8px",borderRadius:20,background:"var(--green)",color:"#fff",fontWeight:700}}>● ACTIVE</span>}
-                          {y.archivedAt && <span style={{fontSize:"0.7rem",padding:"2px 8px",borderRadius:20,background:"var(--mgray)",color:"var(--gray)",fontWeight:700}}>ARCHIVED</span>}
+          {/* Nav tabs */}
+          {view !== "promote" && (
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className={`btn btn-sm ${view === "list" ? "btn-primary" : "btn-ghost"}`} onClick={() => setView("list")}>📋 Academic Years</button>
+              <button className={`btn btn-sm ${view === "create" ? "btn-primary" : "btn-ghost"}`} onClick={() => setView("create")}>＋ New Year</button>
+            </div>
+          )}
+
+          {/* ── LIST VIEW ── */}
+          {view === "list" && (
+            loading
+              ? <div style={{ textAlign: "center", padding: "20px" }}><Spinner size={22} /></div>
+              : years.length === 0
+                ? <div style={{ textAlign: "center", padding: "30px", color: clrMuted }}>No academic years yet. Create one to get started.</div>
+                : <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {years.map(y => (
+                      <div key={y._id} style={{
+                        padding: "14px 16px", borderRadius: "var(--radius-sm)",
+                        border: `2px solid ${y.isActive ? clrGreen : "var(--border)"}`,
+                        background: y.isActive ? "var(--green-lt)" : "var(--surface2)",
+                      }}>
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 700, fontSize: "0.92rem", color: "var(--ink)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              {y.name}
+                              {y.isActive && <span style={{ fontSize: "0.7rem", padding: "2px 8px", borderRadius: 20, background: clrGreen, color: "#fff", fontWeight: 700 }}>● ACTIVE</span>}
+                              {y.archivedAt && <span style={{ fontSize: "0.7rem", padding: "2px 8px", borderRadius: 20, background: "var(--mgray)", color: "var(--gray)", fontWeight: 700 }}>ARCHIVED</span>}
+                              {y.promotedAt && !y.archivedAt && <span style={{ fontSize: "0.7rem", padding: "2px 8px", borderRadius: 20, background: "var(--amber-lt)", color: clrAmber, fontWeight: 700, border: `1px solid ${clrAmber}` }}>✓ PROMOTED</span>}
+                            </div>
+                            <div style={{ fontSize: "0.75rem", color: clrMuted, marginTop: 3 }}>
+                              {new Date(y.startDate).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })} — {new Date(y.endDate).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
+                              &nbsp;·&nbsp;{y.semester} Semester
+                            </div>
+                            {y.promotedAt && (
+                              <div style={{ fontSize: "0.73rem", color: clrMuted, marginTop: 2 }}>
+                                Promoted {new Date(y.promotedAt).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
+                                {y.promotedCount > 0 && ` · ${y.promotedCount} advanced`}
+                                {y.graduatedCount > 0 && ` · ${y.graduatedCount} graduated`}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div style={{fontSize:"0.75rem",color:"var(--muted)",marginTop:2}}>
-                          {new Date(y.startDate).toLocaleDateString("en-PH",{month:"short",day:"numeric",year:"numeric"})} — {new Date(y.endDate).toLocaleDateString("en-PH",{month:"short",day:"numeric",year:"numeric"})}
-                          · {y.semester} Semester
-                          {y.promotedAt && ` · Promoted ${new Date(y.promotedAt).toLocaleDateString("en-PH",{month:"short",day:"numeric",year:"numeric"})}`}
-                        </div>
-                      </div>
-                    </div>
-                    {!y.archivedAt && (
-                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                        {!y.isActive && (
-                          <button className="btn btn-primary btn-sm" onClick={()=>handleActivate(y._id)} disabled={actionLoading}>
-                            ✓ Set Active
-                          </button>
+                        {!y.archivedAt && (
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            {!y.isActive && (
+                              <button className="btn btn-primary btn-sm" onClick={() => handleActivate(y._id)} disabled={actionLoading}>
+                                ✓ Set Active
+                              </button>
+                            )}
+                            {y.isActive && !y.promotedAt && (
+                              <button
+                                className="btn btn-sm"
+                                style={{ background: clrAmber, color: "#fff", border: "none", cursor: "pointer", padding: "6px 12px", borderRadius: "var(--radius-sm)", fontWeight: 600, fontSize: "0.8rem" }}
+                                onClick={() => openPromoteWizard(y)}
+                                disabled={actionLoading}
+                              >
+                                🎓 Promote School Year
+                              </button>
+                            )}
+                            {y.promotedAt && (
+                              <div style={{ fontSize: "0.75rem", color: clrGreen, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+                                ✓ Promotion complete
+                              </div>
+                            )}
+                            <button className="btn btn-ghost btn-sm" style={{ color: clrMuted }} onClick={() => handleArchive(y._id)} disabled={actionLoading}>
+                              📦 Archive
+                            </button>
+                          </div>
                         )}
-                        {y.isActive && !y.promotedAt && (
-                          <button className="btn btn-sm" style={{background:"var(--amber)",color:"#fff",border:"none",cursor:"pointer",padding:"6px 12px",borderRadius:"var(--radius-sm)",fontWeight:600,fontSize:"0.8rem"}}
-                            onClick={()=>handlePromote(y._id)} disabled={actionLoading}>
-                            🎓 Promote Students
-                          </button>
+                        {/* Promotion summary */}
+                        {y.promotionSummary && y.promotionSummary.length > 0 && (
+                          <div style={{ marginTop: 10, padding: "8px 10px", background: "var(--surface)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
+                            <div style={{ fontSize: "0.72rem", fontWeight: 700, color: clrMuted, marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.05em" }}>Promotion Summary</div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                              {y.promotionSummary.map((s, i) => (
+                                <span key={i} style={{
+                                  fontSize: "0.72rem", padding: "2px 8px", borderRadius: 12,
+                                  background: s.graduated ? "var(--red-lt, #fee)" : "var(--green-lt)",
+                                  color: s.graduated ? clrRed : clrGreen,
+                                  border: `1px solid ${s.graduated ? clrRed : clrGreen}`,
+                                  fontWeight: 600,
+                                }}>
+                                  {s.fromGrade} → {s.toGrade}: {s.count}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
                         )}
-                        <button className="btn btn-ghost btn-sm" style={{color:"var(--muted)"}} onClick={()=>handleArchive(y._id)} disabled={actionLoading}>
-                          📦 Archive
-                        </button>
                       </div>
-                    )}
+                    ))}
                   </div>
-                ))}
-              </div>
-            )
-          ) : (
-            <div style={{display:"flex",flexDirection:"column",gap:12}}>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                <div className="form-group" style={{gridColumn:"1/-1"}}>
+          )}
+
+          {/* ── CREATE VIEW ── */}
+          {view === "create" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div className="form-group" style={{ gridColumn: "1/-1" }}>
                   <label className="form-label">Year Name *</label>
-                  <input className="form-input" placeholder="e.g. 2025-2026" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/>
+                  <input className="form-input" placeholder="e.g. 2025-2026"
+                    value={form.name}
+                    onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Start Date *</label>
-                  <input className="form-input" type="date" value={form.startDate} onChange={e=>setForm(f=>({...f,startDate:e.target.value}))}/>
+                  <input className="form-input" type="date" value={form.startDate}
+                    onChange={e => {
+                      const sd = e.target.value;
+                      setForm(f => ({ ...f, startDate: sd, name: f.name || autoFillName(sd, f.endDate) }));
+                    }} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">End Date *</label>
-                  <input className="form-input" type="date" value={form.endDate} onChange={e=>setForm(f=>({...f,endDate:e.target.value}))}/>
+                  <input className="form-input" type="date" value={form.endDate}
+                    onChange={e => {
+                      const ed = e.target.value;
+                      setForm(f => ({ ...f, endDate: ed, name: f.name || autoFillName(f.startDate, ed) }));
+                    }} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Semester</label>
-                  <select className="form-input" value={form.semester} onChange={e=>setForm(f=>({...f,semester:e.target.value}))}>
+                  <select className="form-input" value={form.semester} onChange={e => setForm(f => ({ ...f, semester: e.target.value }))}>
+                    <option value="Full Year">Full Year</option>
                     <option value="1st">1st Semester</option>
                     <option value="2nd">2nd Semester</option>
                     <option value="Summer">Summer</option>
                   </select>
                 </div>
               </div>
+
               <div>
-                <label className="form-label" style={{marginBottom:8}}>🎓 Grade Promotion Map</label>
-                <div style={{fontSize:"0.78rem",color:"var(--muted)",marginBottom:8}}>Define how grades advance when "Promote Students" is triggered for this year.</div>
-                {form.gradeMap.map((gm,i) => (
-                  <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-                    <input className="form-input" style={{flex:1,fontSize:"0.83rem"}} placeholder="From (e.g. Grade 11)" value={gm.fromGrade} onChange={e=>updateGradeMap(i,"fromGrade",e.target.value)}/>
-                    <span style={{color:"var(--muted)",flexShrink:0}}>→</span>
-                    <input className="form-input" style={{flex:1,fontSize:"0.83rem"}} placeholder="To (e.g. Grade 12)" value={gm.toGrade} onChange={e=>updateGradeMap(i,"toGrade",e.target.value)}/>
-                    <button onClick={()=>setForm(f=>({...f,gradeMap:f.gradeMap.filter((_,j)=>j!==i)}))} style={{background:"none",border:"none",cursor:"pointer",color:"var(--red)",flexShrink:0}}>✕</button>
+                <label className="form-label" style={{ marginBottom: 6 }}>🎓 Grade Promotion Map</label>
+                <div style={{ fontSize: "0.78rem", color: clrMuted, marginBottom: 8 }}>
+                  Define how each grade advances. Set <strong>To</strong> as <code>Graduated</code> for Grade 12 — those accounts will be removed after promotion but their attendance records are preserved.
+                </div>
+                {form.gradeMap.map((gm, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <input className="form-input" style={{ flex: 1, fontSize: "0.83rem" }}
+                      placeholder="From (e.g. Grade 11)" value={gm.fromGrade}
+                      onChange={e => updateGradeMap(i, "fromGrade", e.target.value)} />
+                    <span style={{ color: clrMuted, flexShrink: 0 }}>→</span>
+                    <input className="form-input"
+                      style={{ flex: 1, fontSize: "0.83rem", color: gm.toGrade.toLowerCase() === "graduated" ? clrRed : "inherit", fontWeight: gm.toGrade.toLowerCase() === "graduated" ? 700 : 400 }}
+                      placeholder="To (e.g. Grade 12 or Graduated)" value={gm.toGrade}
+                      onChange={e => updateGradeMap(i, "toGrade", e.target.value)} />
+                    <button onClick={() => setForm(f => ({ ...f, gradeMap: f.gradeMap.filter((_, j) => j !== i) }))}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: clrRed, flexShrink: 0 }}>✕</button>
                   </div>
                 ))}
-                <button className="btn btn-ghost btn-sm" onClick={()=>setForm(f=>({...f,gradeMap:[...f.gradeMap,{fromGrade:"",toGrade:""}]}))}>+ Add Grade Level</button>
+                <button className="btn btn-ghost btn-sm"
+                  onClick={() => setForm(f => ({ ...f, gradeMap: [...f.gradeMap, { fromGrade: "", toGrade: "" }] }))}>
+                  + Add Grade Level
+                </button>
               </div>
+
               <button className="btn btn-primary" onClick={handleCreate} disabled={actionLoading}>
-                {actionLoading?<Spinner size={16}/>:"Create Academic Year"}
+                {actionLoading ? <Spinner size={16} /> : "Create Academic Year"}
               </button>
             </div>
           )}
+
+          {/* ── PROMOTE WIZARD ── */}
+          {view === "promote" && promoteTarget && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {/* Wizard header */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => { setView("list"); setPromoteTarget(null); setPreviewData(null); }}>← Back</button>
+                <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--ink)" }}>
+                  🎓 Promote School Year — {promoteTarget.name}
+                </div>
+              </div>
+
+              {/* Step indicators */}
+              <div style={{ display: "flex", gap: 0, borderRadius: "var(--radius-sm)", overflow: "hidden", border: "1px solid var(--border)" }}>
+                {[["1", "Preview Changes"], ["2", "Confirm & Execute"]].map(([num, label], i) => (
+                  <div key={num} style={{
+                    flex: 1, padding: "8px 12px", textAlign: "center",
+                    background: promoteStep === i + 1 ? "var(--accent)" : "var(--surface2)",
+                    color: promoteStep === i + 1 ? "#fff" : clrMuted,
+                    fontSize: "0.78rem", fontWeight: 600,
+                    borderRight: i === 0 ? "1px solid var(--border)" : "none",
+                  }}>
+                    Step {num}: {label}
+                  </div>
+                ))}
+              </div>
+
+              {/* Step 1: Preview */}
+              {promoteStep === 1 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {previewLoading
+                    ? <div style={{ textAlign: "center", padding: "24px" }}><Spinner size={22} /></div>
+                    : previewData ? (
+                      <>
+                        <div style={{ fontSize: "0.83rem", color: "var(--ink3)" }}>
+                          Here's what will happen when you promote this school year:
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {previewData.preview.map((p, i) => (
+                            <div key={i} style={{
+                              display: "flex", alignItems: "center", gap: 10,
+                              padding: "10px 14px", borderRadius: "var(--radius-sm)",
+                              background: p.isGraduating ? "#fff5f5" : "var(--surface)",
+                              border: `1px solid ${p.isGraduating ? clrRed : "var(--border)"}`,
+                            }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 700, fontSize: "0.85rem", color: p.isGraduating ? clrRed : "var(--ink)", display: "flex", alignItems: "center", gap: 6 }}>
+                                  {p.fromGrade}
+                                  <span style={{ color: clrMuted, fontWeight: 400 }}>→</span>
+                                  {p.toGrade}
+                                  {p.isGraduating && <span style={{ fontSize: "0.72rem", padding: "1px 6px", borderRadius: 10, background: clrRed, color: "#fff" }}>Accounts Deleted</span>}
+                                </div>
+                                <div style={{ fontSize: "0.73rem", color: clrMuted, marginTop: 2 }}>
+                                  {p.count} student{p.count !== 1 ? "s" : ""} affected
+                                  {p.isGraduating && " · Attendance records preserved for leaderboard"}
+                                </div>
+                              </div>
+                              <div style={{ fontSize: "1.5rem", fontWeight: 800, color: p.isGraduating ? clrRed : clrGreen }}>
+                                {p.count}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {previewData.uncoveredCount > 0 && (
+                          <div style={{ padding: "10px 14px", borderRadius: "var(--radius-sm)", background: "var(--amber-lt)", border: `1px solid ${clrAmber}`, fontSize: "0.8rem", color: "var(--ink3)" }}>
+                            ⚠️ <strong>{previewData.uncoveredCount} student{previewData.uncoveredCount !== 1 ? "s" : ""}</strong> are not covered by the grade map and will not be promoted.
+                            {previewData.uncoveredSample?.length > 0 && (
+                              <span> (e.g. {previewData.uncoveredSample.map(s => `${s.name} (${s.grade || "no grade"})`).join(", ")})</span>
+                            )}
+                          </div>
+                        )}
+                        <button className="btn btn-primary" onClick={() => setPromoteStep(2)}>
+                          Continue to Confirmation →
+                        </button>
+                      </>
+                    ) : null
+                  }
+                </div>
+              )}
+
+              {/* Step 2: Confirm */}
+              {promoteStep === 2 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{
+                    padding: "16px", borderRadius: "var(--radius-sm)",
+                    background: "#fff5f5", border: `2px solid ${clrRed}`,
+                  }}>
+                    <div style={{ fontWeight: 700, fontSize: "0.9rem", color: clrRed, marginBottom: 8 }}>⚠️ This action cannot be undone</div>
+                    <ul style={{ margin: 0, paddingLeft: 18, color: "var(--ink3)", fontSize: "0.83rem", lineHeight: 1.7 }}>
+                      <li>Students in Grade 11 will be moved to Grade 12</li>
+                      <li>Students in Grade 12 will be <strong>permanently deleted</strong></li>
+                      <li>All attendance records of graduates are <strong>preserved</strong> for leaderboard history</li>
+                      <li>Lower grades will advance one level up</li>
+                    </ul>
+                  </div>
+                  <div style={{ fontSize: "0.85rem", color: "var(--ink3)", textAlign: "center" }}>
+                    Promote school year <strong>{promoteTarget.name}</strong>?
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setPromoteStep(1)} disabled={actionLoading}>
+                      ← Back
+                    </button>
+                    <button
+                      className="btn btn-sm"
+                      style={{ flex: 2, background: clrRed, color: "#fff", border: "none", cursor: "pointer", padding: "10px 16px", borderRadius: "var(--radius-sm)", fontWeight: 700, fontSize: "0.88rem" }}
+                      onClick={handlePromote}
+                      disabled={actionLoading}
+                    >
+                      {actionLoading ? <Spinner size={16} /> : "🎓 Confirm & Promote School Year"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
         </div>
       </div>
     </div>
@@ -7309,70 +7530,82 @@ function AdminDashboard() {
           )}
 
         </div>
-      ) : tab === "academic" ? (
-        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-          {/* Academic Year Manager button */}
-          <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
+      
+) : tab === "academic" ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+          {/* Header row */}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <div>
-              <div style={{ fontWeight:700, fontSize:"0.95rem", color:"var(--ink)" }}>🎓 Academic Management</div>
-              <div style={{ fontSize:"0.78rem", color:"var(--muted)" }}>Manage academic years, promote students, and view section rankings</div>
+              <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--ink)" }}>🎓 Academic Management</div>
+              <div style={{ fontSize: "0.78rem", color: "var(--muted)" }}>Manage school years, promote students, and view section attendance rankings</div>
             </div>
-            <button className="btn btn-primary btn-sm" style={{ marginLeft:"auto" }} onClick={() => setShowAcadYearMgr(true)}>
+            <button className="btn btn-primary btn-sm" style={{ marginLeft: "auto" }} onClick={() => setShowAcadYearMgr(true)}>
               📅 Manage Academic Years
             </button>
           </div>
 
+          {/* Active year banner */}
+          {(() => {
+            const activeYear = null; // loaded below via leaderboard fetch — placeholder
+            return null;
+          })()}
+
           {/* Section Leaderboard */}
-          <div style={{ background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)", padding:"16px" }}>
-            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
-              <div style={{ fontWeight:700, fontSize:"0.9rem", color:"var(--ink)" }}>🏆 Section Attendance Leaderboard</div>
-              <button className="btn btn-ghost btn-sm" style={{ marginLeft:"auto" }} onClick={loadLeaderboard}>↻</button>
+          <div style={{ background: "var(--surface2)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", padding: "16px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--ink)" }}>🏆 Section Attendance Leaderboard</div>
+              <button className="btn btn-ghost btn-sm" style={{ marginLeft: "auto" }} onClick={loadLeaderboard}>↻ Refresh</button>
             </div>
-            {leaderboardLoading ? <div style={{ textAlign:"center",padding:"20px" }}><Spinner size={22}/></div>
-            : leaderboard.length === 0 ? (
-              <div style={{ textAlign:"center",padding:"20px",color:"var(--muted)",fontSize:"0.83rem" }}>
-                No section data available yet.
-              </div>
-            ) : (
-              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                {leaderboard.map((s,i) => {
-                  const medals = ["🥇","🥈","🥉"];
-                  return (
-                    <div key={s.key} style={{
-                      display:"flex", alignItems:"center", gap:12, padding:"10px 14px",
-                      borderRadius:"var(--radius-sm)",
-                      border:`1px solid ${i===0?"var(--amber)":i===1?"var(--mgray)":i===2?"var(--amber)":"var(--border)"}`,
-                      background: i===0?"var(--amber-lt)":i%2===0?"var(--surface)":"var(--surface2)",
-                    }}>
-                      <div style={{ fontSize:"1.3rem", width:28, textAlign:"center", flexShrink:0 }}>
-                        {medals[i] || `#${i+1}`}
-                      </div>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontWeight:700, fontSize:"0.85rem", color:"var(--ink)" }}>
-                          {s.grade} — {s.section}
+            {leaderboardLoading
+              ? <div style={{ textAlign: "center", padding: "20px" }}><Spinner size={22} /></div>
+              : leaderboard.length === 0
+                ? (
+                  <div style={{ textAlign: "center", padding: "20px", color: "var(--muted)", fontSize: "0.83rem" }}>
+                    No section data available yet.
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {leaderboard.map((s, i) => {
+                      const medals = ["🥇", "🥈", "🥉"];
+                      const rateColor = s.rate >= 90 ? "var(--green)" : s.rate >= 75 ? "var(--amber)" : "var(--red)";
+                      return (
+                        <div key={s.key} style={{
+                          display: "flex", alignItems: "center", gap: 12,
+                          padding: "10px 14px", borderRadius: "var(--radius-sm)",
+                          border: `1px solid ${i === 0 ? "var(--amber)" : i === 1 ? "var(--mgray)" : i === 2 ? "var(--amber)" : "var(--border)"}`,
+                          background: i === 0 ? "var(--amber-lt)" : i % 2 === 0 ? "var(--surface)" : "var(--surface2)",
+                        }}>
+                          <div style={{ fontSize: "1.3rem", width: 28, textAlign: "center", flexShrink: 0 }}>
+                            {medals[i] || `#${i + 1}`}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "var(--ink)" }}>
+                              {s.grade} — {s.section}
+                            </div>
+                            <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: 2 }}>
+                              {s.students} students · {s.present} present · {s.absent} absent
+                            </div>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontSize: "1.2rem", fontWeight: 800, color: rateColor }}>
+                              {s.rate}%
+                            </div>
+                            <div style={{ width: 50, height: 4, background: "var(--border)", borderRadius: 2, overflow: "hidden", marginTop: 3 }}>
+                              <div style={{ width: `${s.rate}%`, height: "100%", background: rateColor, borderRadius: 2 }} />
+                            </div>
+                          </div>
                         </div>
-                        <div style={{ fontSize:"0.72rem", color:"var(--muted)", marginTop:2 }}>
-                          {s.students} students · {s.present} present · {s.absent} absent
-                        </div>
-                      </div>
-                      <div style={{ textAlign:"right" }}>
-                        <div style={{ fontSize:"1.2rem", fontWeight:800, color:s.rate>=90?"var(--green)":s.rate>=75?"var(--amber)":"var(--red)" }}>
-                          {s.rate}%
-                        </div>
-                        <div style={{ width:50, height:4, background:"var(--border)", borderRadius:2, overflow:"hidden", marginTop:3 }}>
-                          <div style={{ width:`${s.rate}%`, height:"100%", background:s.rate>=90?"var(--green)":s.rate>=75?"var(--amber)":"var(--red)", borderRadius:2 }}/>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                      );
+                    })}
+                  </div>
+                )
+            }
           </div>
 
           {/* Academic Year Manager Modal */}
           {showAcadYearMgr && (
-            <AcademicYearManager onClose={() => setShowAcadYearMgr(false)} />
+            <AcademicYearManager onClose={() => { setShowAcadYearMgr(false); loadLeaderboard(); }} />
           )}
         </div>
 
