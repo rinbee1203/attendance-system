@@ -26,6 +26,7 @@ app.use("/api/sessions", require("./routes/sessions"));
 app.use("/api/attendance", require("./routes/attendance"));
 app.use("/api/security",   require("./routes/security"));
 app.use("/api/admin",      require("./routes/admin"));
+app.use("/api/academic",   require("./routes/academic"));
 
 // Health check
 app.get("/api/health", (req, res) => res.json({ status: "OK", message: "Server is running" }));
