@@ -32,7 +32,6 @@ const setActiveYear = async (req, res) => {
     await AcademicYear.updateMany({}, { isActive: false });
     const year = await AcademicYear.findByIdAndUpdate(req.params.id, { isActive: true }, { new: true });
     if (!year) return res.status(404).json({ success: false, message: "Academic year not found." });
-    // Tag all students with this year
     await User.updateMany({ role: "student" }, { academicYear: year.name });
     res.json({ success: true, message: `"${year.name}" is now the active academic year.`, year });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
@@ -46,13 +45,46 @@ const archiveYear = async (req, res) => {
       { new: true }
     );
     if (!year) return res.status(404).json({ success: false, message: "Academic year not found." });
-    // Archive all sessions from this year
     await Session.updateMany({ academicYear: year._id }, { isArchived: true, isActive: false });
     res.json({ success: true, message: `"${year.name}" archived. All sessions archived.`, year });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
-// ── Grade Promotion ───────────────────────────────────────────────────────────
+// ── Preview Promotion (dry run) ───────────────────────────────────────────────
+const previewPromotion = async (req, res) => {
+  try {
+    const year = await AcademicYear.findById(req.params.id);
+    if (!year) return res.status(404).json({ success: false, message: "Academic year not found." });
+    if (!year.gradeMap || year.gradeMap.length === 0)
+      return res.status(400).json({ success: false, message: "No grade map defined." });
+
+    const preview = [];
+    for (const { fromGrade, toGrade } of year.gradeMap) {
+      if (!fromGrade || !toGrade) continue;
+      const isGraduating = toGrade.trim().toLowerCase() === "graduated";
+      const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const count = await User.countDocuments({
+        role: "student",
+        grade: { $regex: new RegExp(`^${escapeRegex(fromGrade.trim())}$`, "i") },
+      });
+      preview.push({ fromGrade, toGrade, count, isGraduating });
+    }
+
+    const coveredGrades = year.gradeMap.map(g => g.fromGrade.trim().toLowerCase());
+    const allStudents = await User.find({ role: "student" }).select("grade name");
+    const uncovered = allStudents.filter(s => !coveredGrades.includes((s.grade || "").trim().toLowerCase()));
+
+    res.json({
+      success: true,
+      preview,
+      uncoveredCount: uncovered.length,
+      uncoveredSample: uncovered.slice(0, 5).map(s => ({ name: s.name, grade: s.grade }))
+    });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
+// ── School Year Promotion ─────────────────────────────────────────────────────
+// Grade 12 → "Graduated": attendance records preserved via snapshot, accounts deleted
 const promoteStudents = async (req, res) => {
   try {
     const year = await AcademicYear.findById(req.params.id);
@@ -61,40 +93,73 @@ const promoteStudents = async (req, res) => {
       return res.status(400).json({ success: false, message: "No grade map defined for this year." });
 
     let promoted = 0;
+    let graduated = 0;
     const results = [];
+    const graduatedStudentIds = [];
+    const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
     for (const { fromGrade, toGrade } of year.gradeMap) {
       if (!fromGrade || !toGrade) continue;
+      const isGraduating = toGrade.trim().toLowerCase() === "graduated";
+
       const students = await User.find({
         role: "student",
-        grade: { $regex: new RegExp(`^${fromGrade.trim()}$`, "i") },
+        grade: { $regex: new RegExp(`^${escapeRegex(fromGrade.trim())}$`, "i") },
       });
 
-      for (const student of students) {
-        // Save history before promoting
-        student.previousGrades = student.previousGrades || [];
-        student.previousGrades.push({
-          grade: student.grade,
-          section: student.section,
-          year: year.name,
-          promotedAt: new Date(),
-        });
-        student.grade = toGrade;
-        // Keep section unless it needs to change
-        await student.save({ validateBeforeSave: false });
-        promoted++;
+      if (isGraduating) {
+        for (const student of students) {
+          // Preserve leaderboard data — stamp attendance with student info snapshot
+          await Attendance.updateMany(
+            { student: student._id },
+            {
+              $set: {
+                studentNameSnapshot: student.name,
+                studentGradeSnapshot: student.grade,
+                studentSectionSnapshot: student.section,
+                graduatedAt: new Date(),
+                graduatedYear: year.name,
+              }
+            }
+          );
+          graduatedStudentIds.push(student._id);
+          graduated++;
+        }
+        results.push({ from: fromGrade, to: "Graduated", count: students.length, graduated: true });
+      } else {
+        for (const student of students) {
+          student.previousGrades = student.previousGrades || [];
+          student.previousGrades.push({
+            grade: student.grade,
+            section: student.section,
+            year: year.name,
+            promotedAt: new Date(),
+          });
+          student.grade = toGrade;
+          await student.save({ validateBeforeSave: false });
+          promoted++;
+        }
+        results.push({ from: fromGrade, to: toGrade, count: students.length, graduated: false });
       }
-      results.push({ from: fromGrade, to: toGrade, count: students.length });
+    }
+
+    // Delete graduated student accounts AFTER preserving their attendance data
+    if (graduatedStudentIds.length > 0) {
+      await User.deleteMany({ _id: { $in: graduatedStudentIds } });
     }
 
     year.promotedAt = new Date();
+    year.promotionSummary = results;
+    year.promotedCount = promoted;
+    year.graduatedCount = graduated;
     await year.save();
 
     res.json({
       success: true,
-      message: `${promoted} student${promoted !== 1 ? "s" : ""} promoted successfully.`,
+      message: `${promoted} student${promoted !== 1 ? "s" : ""} promoted. ${graduated} graduate${graduated !== 1 ? "s" : ""} removed (records preserved).`,
       results,
       promoted,
+      graduated,
     });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
@@ -107,7 +172,6 @@ const getSectionLeaderboard = async (req, res) => {
       ? (await AcademicYear.findById(yearId))?.startDate || new Date(0)
       : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-    // Get attendance per student
     const attData = await Attendance.aggregate([
       { $match: { createdAt: { $gte: new Date(since) } } },
       { $group: {
@@ -115,20 +179,20 @@ const getSectionLeaderboard = async (req, res) => {
         total:   { $sum: 1 },
         present: { $sum: { $cond: [{ $in: ["$status", ["present","late"]] }, 1, 0] } },
         absent:  { $sum: { $cond: [{ $eq: ["$status", "absent"] }, 1, 0] } },
+        gradeSnapshot:   { $first: "$studentGradeSnapshot" },
+        sectionSnapshot: { $first: "$studentSectionSnapshot" },
       }},
     ]);
 
     const attMap = {};
-    attData.forEach(a => { attMap[a._id.toString()] = a; });
+    attData.forEach(a => { attMap[a._id ? a._id.toString() : "__null__"] = a; });
 
-    // Get all students with their sections
     const students = await User.find({ role: "student", section: { $exists: true, $ne: null, $ne: "" } })
-      .select("grade section");
+      .select("grade section _id");
 
-    // Group by grade+section
     const sectionMap = {};
     for (const student of students) {
-      const key = `${(student.grade||"").trim()} — ${(student.section||"").trim()}`;
+      const key = `${(student.grade || "").trim()} — ${(student.section || "").trim()}`;
       if (!sectionMap[key]) sectionMap[key] = { grade: student.grade, section: student.section, students: 0, present: 0, total: 0, absent: 0 };
       sectionMap[key].students++;
       const att = attMap[student._id.toString()];
@@ -140,13 +204,8 @@ const getSectionLeaderboard = async (req, res) => {
     }
 
     const leaderboard = Object.entries(sectionMap).map(([key, v]) => ({
-      key,
-      grade: v.grade,
-      section: v.section,
-      students: v.students,
-      present: v.present,
-      total: v.total,
-      absent: v.absent,
+      key, grade: v.grade, section: v.section,
+      students: v.students, present: v.present, total: v.total, absent: v.absent,
       rate: v.total > 0 ? Math.round((v.present / v.total) * 100) : 0,
     })).sort((a, b) => b.rate - a.rate);
 
@@ -158,9 +217,8 @@ const getSectionLeaderboard = async (req, res) => {
 const getAttendanceForecast = async (req, res) => {
   try {
     const { sessionId } = req.query;
-    const since = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000); // last 60 days
+    const since = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
 
-    // Get all sessions for this teacher (or specific session's subject)
     let sessionFilter = { teacher: req.user._id };
     if (sessionId) {
       const targetSession = await Session.findById(sessionId);
@@ -169,14 +227,12 @@ const getAttendanceForecast = async (req, res) => {
     const sessions = await Session.find(sessionFilter).select("_id subject activatedAt startTime");
     const sessionIds = sessions.map(s => s._id);
 
-    // Get roster for context
     const rosterSizes = {};
     for (const s of sessions) {
       const roster = await Session.findById(s._id).select("roster");
       rosterSizes[s._id.toString()] = roster?.roster?.length || 0;
     }
 
-    // Attendance per session per day-of-week
     const attData = await Attendance.aggregate([
       { $match: { session: { $in: sessionIds }, createdAt: { $gte: since } } },
       { $addFields: {
@@ -191,7 +247,6 @@ const getAttendanceForecast = async (req, res) => {
       }},
     ]);
 
-    // Build day-of-week patterns per session
     const dayNames = ["","Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
     const patterns = {};
     attData.forEach(a => {
@@ -205,15 +260,13 @@ const getAttendanceForecast = async (req, res) => {
       };
     });
 
-    // Get today + next 7 days forecast
     const forecast = [];
     const now = new Date();
     for (let d = 0; d <= 6; d++) {
       const date = new Date(now);
       date.setDate(now.getDate() + d);
-      const dow = date.getDay() + 1; // MongoDB $dayOfWeek is 1-7 (Sun-Sat)
+      const dow = date.getDay() + 1;
       const dateStr = date.toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday:"short", month:"short", day:"numeric" });
-
       for (const session of sessions) {
         const pattern = patterns[session._id.toString()]?.[dow];
         if (pattern) {
@@ -222,11 +275,8 @@ const getAttendanceForecast = async (req, res) => {
             ? Math.round(rosterSize * (1 - pattern.absentRate / 100))
             : pattern.avgCheckins;
           forecast.push({
-            date: dateStr,
-            dow,
-            dayName: dayNames[dow],
-            subject: session.subject,
-            sessionId: session._id,
+            date: dateStr, dow, dayName: dayNames[dow],
+            subject: session.subject, sessionId: session._id,
             predictedCheckins: predicted,
             predictedAbsents: rosterSize > 0 ? rosterSize - predicted : null,
             historicalAbsentRate: pattern.absentRate,
@@ -245,8 +295,7 @@ const getAttendanceForecast = async (req, res) => {
 // ── Recurring Schedules ───────────────────────────────────────────────────────
 const getRecurringSchedules = async (req, res) => {
   try {
-    const schedules = await RecurringSchedule.find({ teacher: req.user._id, isActive: true })
-      .sort({ createdAt: -1 });
+    const schedules = await RecurringSchedule.find({ teacher: req.user._id, isActive: true }).sort({ createdAt: -1 });
     res.json({ success: true, schedules });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
@@ -290,15 +339,13 @@ const deleteRecurringSchedule = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
-// Auto-create today's sessions from recurring schedules
 const generateDailySessions = async (req, res) => {
   try {
     const now = new Date();
     const manilaTime = new Date(now.getTime() + 8 * 60 * 60 * 1000);
-    const todayDOW  = manilaTime.getUTCDay(); // 0=Sun,1=Mon...
+    const todayDOW  = manilaTime.getUTCDay();
     const todayStr  = manilaTime.toISOString().split("T")[0];
 
-    // Find teacher's schedules OR all (for admin/cron)
     const filter = req.user.role === "teacher"
       ? { teacher: req.user._id, isActive: true, daysOfWeek: todayDOW }
       : { isActive: true, daysOfWeek: todayDOW };
@@ -307,36 +354,24 @@ const generateDailySessions = async (req, res) => {
     let created = 0;
 
     for (const schedule of schedules) {
-      // Skip if already created today
       if (schedule.createdDates.includes(todayStr)) continue;
-
-      // Parse start time
       const [hh, mm] = schedule.startTime.split(":").map(Number);
       const sessionStart = new Date(manilaTime);
-      sessionStart.setUTCHours(hh - 8, mm, 0, 0); // convert back to UTC
-
+      sessionStart.setUTCHours(hh - 8, mm, 0, 0);
       const sessionEnd = new Date(sessionStart.getTime() + schedule.durationMinutes * 60 * 1000);
-
-      // Create session
       const activeYear = await AcademicYear.findOne({ isActive: true });
-      const session = await Session.create({
-        subject: schedule.subject,
-        teacher: schedule.teacher,
-        room: schedule.room,
-        description: schedule.description,
+      await Session.create({
+        subject: schedule.subject, teacher: schedule.teacher,
+        room: schedule.room, description: schedule.description,
         lateAfterMinutes: schedule.lateAfterMinutes,
-        allowedGrades: schedule.allowedGrades,
-        allowedSections: schedule.allowedSections,
-        scheduledStart: sessionStart,
-        scheduledEnd: sessionEnd,
+        allowedGrades: schedule.allowedGrades, allowedSections: schedule.allowedSections,
+        scheduledStart: sessionStart, scheduledEnd: sessionEnd,
         expiresAt: new Date(Date.now() + 210 * 24 * 60 * 60 * 1000),
         recurringSchedule: schedule._id,
         academicYear: activeYear?._id || null,
         absenceLimit: schedule.absenceLimit,
         absenceLimitEnabled: schedule.absenceLimitEnabled,
       });
-
-      // Mark date as created
       schedule.createdDates.push(todayStr);
       await schedule.save();
       created++;
@@ -347,7 +382,8 @@ const generateDailySessions = async (req, res) => {
 };
 
 module.exports = {
-  getAcademicYears, createAcademicYear, setActiveYear, archiveYear, promoteStudents,
+  getAcademicYears, createAcademicYear, setActiveYear, archiveYear,
+  promoteStudents, previewPromotion,
   getSectionLeaderboard, getAttendanceForecast,
   getRecurringSchedules, createRecurringSchedule, updateRecurringSchedule,
   deleteRecurringSchedule, generateDailySessions,
