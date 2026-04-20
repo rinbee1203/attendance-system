@@ -4,12 +4,15 @@ const { protect, restrictTo } = require("../middleware/auth");
 const {
   getAcademicYears, createAcademicYear, setActiveYear, archiveYear,
   promoteStudents, previewPromotion,
+  autoEnsureAcademicYear, updateYearEndDate,
   getSectionLeaderboard, getAttendanceForecast,
   getRecurringSchedules, createRecurringSchedule, updateRecurringSchedule,
   deleteRecurringSchedule, generateDailySessions,
 } = require("../controllers/academicController");
 
 // Academic years — admin only
+router.post("/years/auto-ensure",           protect, restrictTo("admin"), autoEnsureAcademicYear);
+router.patch("/years/:id/end-date",         protect, restrictTo("admin"), updateYearEndDate);
 router.get("/years",                    protect, restrictTo("admin"), getAcademicYears);
 router.post("/years",                   protect, restrictTo("admin"), createAcademicYear);
 router.patch("/years/:id/activate",     protect, restrictTo("admin"), setActiveYear);
