@@ -1,11 +1,15 @@
 {
+  "name": "AttendQR — Smart Attendance",
   "short_name": "AttendQR",
-  "name": "AttendQR - Smart Attendance System",
-  "icons": [
-    { "src": "favicon.ico", "sizes": "64x64 32x32 24x24 16x16", "type": "image/x-icon" }
-  ],
-  "start_url": ".",
+  "description": "QR-based classroom attendance management for Philippine schools",
+  "start_url": "/",
   "display": "standalone",
-  "theme_color": "#6c63ff",
-  "background_color": "#0a0a12"
+  "background_color": "#1A1A17",
+  "theme_color": "#1A1A17",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ],
+  "categories": ["education", "productivity"],
+  "lang": "en-PH"
 }
