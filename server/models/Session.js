@@ -22,6 +22,9 @@ const sessionSchema = new mongoose.Schema(
     // Absence limit — warn when student exceeds this many absences per subject
     absenceLimit:    { type: Number, default: 3 },
     absenceLimitEnabled: { type: Boolean, default: false },
+    academicYear:    { type: mongoose.Schema.Types.ObjectId, ref: "AcademicYear", default: null },
+    recurringSchedule: { type: mongoose.Schema.Types.ObjectId, ref: "RecurringSchedule", default: null },
+    isArchived:      { type: Boolean, default: false },
   },
   { timestamps: true }
 );
