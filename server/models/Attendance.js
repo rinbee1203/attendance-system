@@ -9,11 +9,17 @@ const attendanceSchema = new mongoose.Schema(
     ipAddress:      { type: String },
     attendanceDate: { type: String }, // YYYY-MM-DD Manila timezone
     // Absence tracking
-    markedAbsentBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }, // teacher/admin who marked
-    absentReason:   { type: String, default: null },   // optional reason
-    autoMarked:     { type: Boolean, default: false },  // true = auto-marked when session ended
-    overriddenBy:   { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }, // teacher who overrode
+    markedAbsentBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    absentReason:   { type: String, default: null },
+    autoMarked:     { type: Boolean, default: false },
+    overriddenBy:   { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     overriddenAt:   { type: Date, default: null },
+    // Graduation snapshot — preserved after student account is deleted
+    studentNameSnapshot:    { type: String, default: null },
+    studentGradeSnapshot:   { type: String, default: null },
+    studentSectionSnapshot: { type: String, default: null },
+    graduatedAt:            { type: Date, default: null },
+    graduatedYear:          { type: String, default: null },
   },
   { timestamps: true }
 );
