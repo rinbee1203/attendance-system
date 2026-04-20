@@ -61,6 +61,10 @@ const userSchema = new mongoose.Schema(
       lastSeenAt: { type: Date, default: Date.now },
     }],
 
+    // Academic year tracking
+    academicYear:   { type: String, default: null }, // e.g. "2025-2026"
+    previousGrades: [{ grade: String, section: String, year: String, promotedAt: Date }],
+
     // Announcements — track which ones this user has read
     readAnnouncements: [{ type: String }], // array of announcement IDs
 
