@@ -4411,57 +4411,351 @@ function OfflineIndicator() {
 }
 
 // ─── SECTION LEADERBOARD ────────────────────────────────────────────────────
+// ─── RATE BAR HELPER ──────────────────────────────────────────────────────────
+function RateBar({ rate, width = 60 }) {
+  const color = rate >= 90 ? "var(--green)" : rate >= 75 ? "var(--amber)" : "var(--red)";
+  return (
+    <div style={{ width, height: 5, background: "var(--border)", borderRadius: 3, overflow: "hidden", marginTop: 3 }}>
+      <div style={{ width: `${rate}%`, height: "100%", background: color, borderRadius: 3 }} />
+    </div>
+  );
+}
+
+// ─── ADMIN LEADERBOARD PANEL (inline in Academic tab) ─────────────────────────
+function AdminLeaderboardPanel({ data, loading, onRefresh }) {
+  const [tab, setTab]           = useState("section");
+  const [perfPeriod, setPerfPeriod] = useState("fullYear");
+  const [perfSub, setPerfSub]   = useState(null); // selected month/quarter key
+  const [secRankKey, setSecRankKey] = useState(null);
+  const [sessionExpand, setSessionExpand] = useState(null);
+  const medals = ["🥇", "🥈", "🥉"];
+
+  const TABS = [
+    { id: "section",   label: "By Section" },
+    { id: "session",   label: "By Session" },
+    { id: "perfect",   label: "Perfect Attendance" },
+    { id: "student",   label: "Student Rankings" },
+  ];
+
+  const rateColor = (r) => r >= 90 ? "var(--green)" : r >= 75 ? "var(--amber)" : "var(--red)";
+
+  // ── Section tab ─────────────────────────────────────────────────────────────
+  const SectionTab = () => {
+    const lb = data?.leaderboard || [];
+    if (!lb.length) return <EmptyState msg="No section data available yet." />;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        {lb.map((s, i) => (
+          <div key={s.key} style={{
+            display: "flex", alignItems: "center", gap: 10, padding: "10px 13px",
+            borderRadius: "var(--radius-sm)",
+            border: `1px solid ${i === 0 ? "var(--amber)" : i === 1 ? "#A8A8B3" : i === 2 ? "#C2410C55" : "var(--border)"}`,
+            background: i === 0 ? "var(--amber-lt)" : i === 1 ? "var(--surface2)" : i === 2 ? "#FFF7ED" : "var(--surface2)",
+          }}>
+            <div style={{ fontSize: "1.3rem", width: 28, textAlign: "center", flexShrink: 0 }}>{medals[i] || `#${i + 1}`}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "var(--ink)" }}>{s.grade} — {s.section}</div>
+              <div style={{ fontSize: "0.71rem", color: "var(--muted)", marginTop: 2 }}>
+                {s.students} students · {s.present} present · {s.late} late · {s.absent} absent
+              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: "1.15rem", fontWeight: 800, color: rateColor(s.rate) }}>{s.rate}%</div>
+              <RateBar rate={s.rate} width={48} />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // ── Session tab ─────────────────────────────────────────────────────────────
+  const SessionTab = () => {
+    const sl = data?.sessionLeaderboard || [];
+    if (!sl.length) return <EmptyState msg="No session data available yet." />;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {sl.map((sub) => {
+          const isOpen = sessionExpand === sub.subject;
+          return (
+            <div key={sub.subject} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "var(--surface2)", cursor: "pointer" }}
+                onClick={() => setSessionExpand(isOpen ? null : sub.subject)}
+              >
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: "0.86rem", color: "var(--ink)" }}>📚 {sub.subject}</div>
+                  <div style={{ fontSize: "0.71rem", color: "var(--muted)", marginTop: 2 }}>
+                    {sub.totalSessions} sessions · {sub.perfectCount} perfect attendance
+                    {sub.bestSection && <> · Best: <strong>{sub.bestSection.grade} {sub.bestSection.section}</strong> ({sub.bestSection.rate}%)</>}
+                  </div>
+                </div>
+                <div style={{ fontSize: "0.78rem", color: "var(--muted)" }}>{isOpen ? "▲" : "▼"}</div>
+              </div>
+              {isOpen && (
+                <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 12 }}>
+                  {/* Section ranking for this subject */}
+                  {sub.sectionRanking.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--muted)", letterSpacing: "0.05em", marginBottom: 6 }}>SECTION RANKING</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                        {sub.sectionRanking.map((sec, i) => (
+                          <div key={`${sec.grade}-${sec.section}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: "var(--radius-sm)", background: "var(--surface3,var(--surface))" }}>
+                            <div style={{ fontSize: "0.85rem", width: 22, textAlign: "center" }}>{medals[i] || `#${i+1}`}</div>
+                            <div style={{ flex: 1, fontSize: "0.8rem", fontWeight: 600, color: "var(--ink)" }}>{sec.grade} — {sec.section}</div>
+                            <div style={{ fontSize: "0.71rem", color: "var(--muted)" }}>{sec.students} students</div>
+                            <div style={{ fontWeight: 700, fontSize: "0.85rem", color: rateColor(sec.rate) }}>{sec.rate}%</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* Perfect attendance students */}
+                  {sub.perfectStudents.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--muted)", letterSpacing: "0.05em", marginBottom: 6 }}>⭐ PERFECT ATTENDANCE ({sub.perfectStudents.length})</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                        {sub.perfectStudents.map(st => (
+                          <div key={st.id} style={{ padding: "3px 9px", borderRadius: 20, background: "var(--green-lt,#DCFCE7)", border: "1px solid var(--green)", fontSize: "0.75rem", color: "var(--ink)", fontWeight: 600 }}>
+                            {st.name} <span style={{ color: "var(--muted)", fontWeight: 400 }}>({st.grade} {st.section})</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // ── Perfect Attendance tab ───────────────────────────────────────────────────
+  const PerfectTab = () => {
+    const pa = data?.perfectAttendance;
+    if (!pa) return <EmptyState msg="No attendance data yet." />;
+
+    const PERIOD_TABS = [
+      { id: "monthly",   label: "Monthly" },
+      { id: "quarterly", label: "Quarterly" },
+      { id: "fullYear",  label: "Full School Year" },
+    ];
+
+    const listForPeriod = () => {
+      if (perfPeriod === "fullYear") return pa.fullYear || [];
+      if (perfPeriod === "monthly") {
+        const entry = (pa.monthly || []).find(m => m.key === perfSub) || pa.monthly?.[pa.monthly.length - 1];
+        return entry?.students || [];
+      }
+      if (perfPeriod === "quarterly") {
+        const entry = (pa.quarterly || []).find(q => q.key === perfSub) || pa.quarterly?.find(q => q.students.length > 0);
+        return entry?.students || [];
+      }
+      return [];
+    };
+
+    const students = listForPeriod();
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {/* Period type tabs */}
+        <div style={{ display: "flex", gap: 6 }}>
+          {PERIOD_TABS.map(pt => (
+            <button key={pt.id} className="btn btn-ghost btn-sm"
+              style={{ fontWeight: perfPeriod === pt.id ? 700 : 400, borderBottom: perfPeriod === pt.id ? "2px solid var(--primary)" : "2px solid transparent", borderRadius: 0, padding: "4px 10px" }}
+              onClick={() => { setPerfPeriod(pt.id); setPerfSub(null); }}>
+              {pt.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Sub-period selector (monthly / quarterly) */}
+        {perfPeriod === "monthly" && (
+          <select value={perfSub || pa.monthly?.[pa.monthly.length - 1]?.key || ""} onChange={e => setPerfSub(e.target.value)}
+            style={{ padding: "6px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--surface)", fontSize: "0.82rem" }}>
+            {(pa.monthly || []).map(m => <option key={m.key} value={m.key}>{m.label} ({m.students.length} perfect)</option>)}
+          </select>
+        )}
+        {perfPeriod === "quarterly" && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {(pa.quarterly || []).map(q => (
+              <button key={q.key} className="btn btn-ghost btn-sm"
+                style={{ fontWeight: (perfSub || pa.quarterly?.find(x => x.students.length > 0)?.key) === q.key ? 700 : 400, borderRadius: "var(--radius-sm)", border: `1px solid ${(perfSub || pa.quarterly?.find(x => x.students.length > 0)?.key) === q.key ? "var(--primary)" : "var(--border)"}` }}
+                onClick={() => setPerfSub(q.key)}>
+                {q.key} · {q.students.length}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Students list */}
+        {perfPeriod === "fullYear" && (
+          <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: -4 }}>
+            Students with zero absences across all recorded sessions
+          </div>
+        )}
+        {students.length === 0
+          ? <EmptyState msg="No students with perfect attendance in this period." />
+          : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {students.map((st, i) => (
+                <div key={st.id} style={{
+                  display: "flex", alignItems: "center", gap: 10, padding: "9px 13px",
+                  borderRadius: "var(--radius-sm)",
+                  border: `1px solid ${i === 0 ? "var(--amber)" : i === 1 ? "#A8A8B3" : i === 2 ? "#C2410C55" : "var(--border)"}`,
+                  background: i < 3 ? (i === 0 ? "var(--amber-lt)" : i === 1 ? "var(--surface2)" : "#FFF7ED") : "var(--surface2)",
+                }}>
+                  <div style={{ fontSize: "1.2rem", width: 26, textAlign: "center", flexShrink: 0 }}>{medals[i] || `#${i + 1}`}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: "0.84rem", color: "var(--ink)" }}>{st.name}</div>
+                    <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: 1 }}>{st.grade} — {st.section}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: "0.72rem", color: "var(--green)", fontWeight: 700 }}>✅ Perfect</div>
+                    <div style={{ fontSize: "0.68rem", color: "var(--muted)" }}>{st.present} present · {st.late} late</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        }
+      </div>
+    );
+  };
+
+  // ── Student Rankings tab ─────────────────────────────────────────────────────
+  const StudentRankTab = () => {
+    const sections = data?.sectionStudentRank || [];
+    if (!sections.length) return <EmptyState msg="No student data available yet." />;
+
+    const selectedSec = sections.find(s => s.key === secRankKey) || sections[0];
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* Section picker */}
+        <select value={secRankKey || selectedSec?.key || ""}
+          onChange={e => setSecRankKey(e.target.value)}
+          style={{ padding: "6px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--surface)", fontSize: "0.82rem" }}>
+          {sections.map(s => <option key={s.key} value={s.key}>{s.grade} — {s.section} ({s.studentCount} students)</option>)}
+        </select>
+
+        {/* Table */}
+        {selectedSec && (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
+              <thead>
+                <tr style={{ background: "var(--surface3,var(--surface))", borderBottom: "2px solid var(--border)" }}>
+                  {["Rank","Student","Present","Late","Absent","Rate","Status"].map(h => (
+                    <th key={h} style={{ padding: "7px 10px", textAlign: h === "Student" ? "left" : "center", fontWeight: 700, color: "var(--muted)", fontSize: "0.7rem", letterSpacing: "0.04em" }}>{h.toUpperCase()}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {selectedSec.students.map((st, idx) => {
+                  const rc = rateColor(st.attendedRate);
+                  const isTop3 = st.rank <= 3;
+                  return (
+                    <tr key={st.id} style={{ borderBottom: "1px solid var(--border)", background: isTop3 ? (st.rank === 1 ? "var(--amber-lt)" : st.rank === 2 ? "var(--surface2)" : "#FFF7ED") : idx % 2 === 0 ? "var(--surface)" : "var(--surface2)" }}>
+                      <td style={{ padding: "7px 10px", textAlign: "center", fontWeight: 700 }}>
+                        {st.rank <= 3 ? ["🥇","🥈","🥉"][st.rank - 1] : `#${st.rank}`}
+                      </td>
+                      <td style={{ padding: "7px 10px", fontWeight: 600, color: "var(--ink)" }}>{st.name}</td>
+                      <td style={{ padding: "7px 10px", textAlign: "center", color: "var(--green)", fontWeight: 600 }}>{st.present}</td>
+                      <td style={{ padding: "7px 10px", textAlign: "center", color: "var(--amber)" }}>{st.late}</td>
+                      <td style={{ padding: "7px 10px", textAlign: "center", color: "var(--red)" }}>{st.absent}</td>
+                      <td style={{ padding: "7px 10px", textAlign: "center" }}>
+                        <span style={{ fontWeight: 700, color: rc }}>{st.attendedRate}%</span>
+                        <RateBar rate={st.attendedRate} width={40} />
+                      </td>
+                      <td style={{ padding: "7px 10px", textAlign: "center" }}>
+                        {st.absent === 0 && st.total > 0
+                          ? <span style={{ fontSize: "0.68rem", padding: "2px 7px", borderRadius: 20, background: "var(--green-lt,#DCFCE7)", color: "var(--green)", fontWeight: 700 }}>Perfect</span>
+                          : st.attendedRate >= 90
+                            ? <span style={{ fontSize: "0.68rem", padding: "2px 7px", borderRadius: 20, background: "var(--amber-lt)", color: "var(--amber)", fontWeight: 700 }}>Excellent</span>
+                            : st.attendedRate >= 75
+                              ? <span style={{ fontSize: "0.68rem", padding: "2px 7px", borderRadius: 20, background: "var(--surface)", color: "var(--muted)", fontWeight: 600 }}>Good</span>
+                              : <span style={{ fontSize: "0.68rem", padding: "2px 7px", borderRadius: 20, background: "#FEE2E2", color: "var(--red)", fontWeight: 700 }}>At Risk</span>
+                        }
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const EmptyState = ({ msg }) => (
+    <div style={{ textAlign: "center", padding: "24px 0", color: "var(--muted)", fontSize: "0.83rem" }}>{msg}</div>
+  );
+
+  return (
+    <div style={{ background: "var(--surface2)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", padding: "16px" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+        <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--ink)" }}>🏆 Attendance Leaderboard</div>
+        <button className="btn btn-ghost btn-sm" style={{ marginLeft: "auto" }} onClick={onRefresh}>↻ Refresh</button>
+      </div>
+
+      {/* Tab bar */}
+      <div style={{ display: "flex", gap: 0, marginBottom: 14, borderBottom: "1px solid var(--border)" }}>
+        {TABS.map(t => (
+          <button key={t.id}
+            style={{ padding: "6px 12px", fontSize: "0.78rem", fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? "var(--primary)" : "var(--muted)", background: "none", border: "none", borderBottom: tab === t.id ? "2px solid var(--primary)" : "2px solid transparent", cursor: "pointer", marginBottom: -1 }}
+            onClick={() => setTab(t.id)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {loading
+        ? <div style={{ textAlign: "center", padding: "24px" }}><Spinner size={22} /></div>
+        : (
+          <>
+            {tab === "section"  && <SectionTab />}
+            {tab === "session"  && <SessionTab />}
+            {tab === "perfect"  && <PerfectTab />}
+            {tab === "student"  && <StudentRankTab />}
+          </>
+        )
+      }
+    </div>
+  );
+}
+
+// ─── SECTION LEADERBOARD MODAL (teacher quick-view) ──────────────────────────
 function SectionLeaderboard({ onClose }) {
-  const [data, setData] = useState([]);
+  const [lbData, setLbData] = useState(null);
   const [loading, setLoading] = useState(true);
   useEscKey(onClose);
 
   useEffect(() => {
     api.get("/academic/leaderboard")
-      .then(d => setData(d.leaderboard || []))
+      .then(d => setLbData(d))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  const medals = ["🥇","🥈","🥉"];
-
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box" style={{ maxWidth:520, width:"96vw" }} onClick={e=>e.stopPropagation()}>
+      <div className="modal-box" style={{ maxWidth: 600, width: "96vw" }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h2 className="modal-title">🏆 Section Attendance Leaderboard</h2>
+          <h2 className="modal-title">🏆 Attendance Leaderboard</h2>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
-        <div className="modal-body">
-          {loading ? <div style={{textAlign:"center",padding:"30px"}}><Spinner size={24}/></div>
-          : data.length === 0 ? <div style={{textAlign:"center",color:"var(--muted)",padding:"30px"}}>No section data yet.</div>
-          : (
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {data.map((s,i) => (
-                <div key={s.key} style={{
-                  display:"flex", alignItems:"center", gap:12, padding:"12px 14px",
-                  borderRadius:"var(--radius-sm)", border:`1px solid ${i===0?"var(--amber)":i===1?"var(--gray)":i===2?"var(--orange,#C2410C)":"var(--border)"}`,
-                  background: i===0?"var(--amber-lt)":i===1?"var(--surface2)":i===2?"var(--lorange,#FFEDD5)":"var(--surface2)",
-                }}>
-                  <div style={{fontSize:"1.5rem",width:32,textAlign:"center",flexShrink:0}}>
-                    {medals[i] || `#${i+1}`}
-                  </div>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:700,fontSize:"0.9rem",color:"var(--ink)"}}>{s.grade} — {s.section}</div>
-                    <div style={{fontSize:"0.74rem",color:"var(--muted)",marginTop:2}}>
-                      {s.students} students · {s.present} present · {s.absent} absent
-                    </div>
-                  </div>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:"1.4rem",fontWeight:800,color:s.rate>=90?"var(--green)":s.rate>=75?"var(--amber)":"var(--red)"}}>{s.rate}%</div>
-                    <div style={{width:60,height:5,background:"var(--border)",borderRadius:3,overflow:"hidden",marginTop:4}}>
-                      <div style={{width:`${s.rate}%`,height:"100%",background:s.rate>=90?"var(--green)":s.rate>=75?"var(--amber)":"var(--red)",borderRadius:3}}/>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="modal-body" style={{ maxHeight: "70vh", overflowY: "auto" }}>
+          {loading
+            ? <div style={{ textAlign: "center", padding: "30px" }}><Spinner size={24} /></div>
+            : <AdminLeaderboardPanel data={lbData} loading={false} onRefresh={() => {
+                setLoading(true);
+                api.get("/academic/leaderboard").then(d => setLbData(d)).finally(() => setLoading(false));
+              }} />
+          }
         </div>
       </div>
     </div>
@@ -7047,6 +7341,7 @@ function AdminDashboard() {
   const [selectedIds, setSelectedIds]       = useState([]);
   const [analytics, setAnalytics]           = useState(null);
   const [leaderboard, setLeaderboard]       = useState([]);
+  const [leaderboardFull, setLeaderboardFull]   = useState(null);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [showAcadYearMgr, setShowAcadYearMgr] = useState(false);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
@@ -7099,7 +7394,11 @@ function AdminDashboard() {
 
   const loadLeaderboard = async () => {
     setLeaderboardLoading(true);
-    try { const d = await api.get("/academic/leaderboard"); setLeaderboard(d.leaderboard||[]); }
+    try {
+      const d = await api.get("/academic/leaderboard");
+      setLeaderboard(d.leaderboard||[]);
+      setLeaderboardFull(d);
+    }
     catch(e) { showToast(e.message,"error"); }
     finally { setLeaderboardLoading(false); }
   };
@@ -7775,56 +8074,7 @@ function AdminDashboard() {
           })()}
 
           {/* Section Leaderboard */}
-          <div style={{ background: "var(--surface2)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", padding: "16px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-              <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--ink)" }}>🏆 Section Attendance Leaderboard</div>
-              <button className="btn btn-ghost btn-sm" style={{ marginLeft: "auto" }} onClick={loadLeaderboard}>↻ Refresh</button>
-            </div>
-            {leaderboardLoading
-              ? <div style={{ textAlign: "center", padding: "20px" }}><Spinner size={22} /></div>
-              : leaderboard.length === 0
-                ? (
-                  <div style={{ textAlign: "center", padding: "20px", color: "var(--muted)", fontSize: "0.83rem" }}>
-                    No section data available yet.
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {leaderboard.map((s, i) => {
-                      const medals = ["🥇", "🥈", "🥉"];
-                      const rateColor = s.rate >= 90 ? "var(--green)" : s.rate >= 75 ? "var(--amber)" : "var(--red)";
-                      return (
-                        <div key={s.key} style={{
-                          display: "flex", alignItems: "center", gap: 12,
-                          padding: "10px 14px", borderRadius: "var(--radius-sm)",
-                          border: `1px solid ${i === 0 ? "var(--amber)" : i === 1 ? "var(--mgray)" : i === 2 ? "var(--amber)" : "var(--border)"}`,
-                          background: i === 0 ? "var(--amber-lt)" : i % 2 === 0 ? "var(--surface)" : "var(--surface2)",
-                        }}>
-                          <div style={{ fontSize: "1.3rem", width: 28, textAlign: "center", flexShrink: 0 }}>
-                            {medals[i] || `#${i + 1}`}
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "var(--ink)" }}>
-                              {s.grade} — {s.section}
-                            </div>
-                            <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: 2 }}>
-                              {s.students} students · {s.present} present · {s.absent} absent
-                            </div>
-                          </div>
-                          <div style={{ textAlign: "right" }}>
-                            <div style={{ fontSize: "1.2rem", fontWeight: 800, color: rateColor }}>
-                              {s.rate}%
-                            </div>
-                            <div style={{ width: 50, height: 4, background: "var(--border)", borderRadius: 2, overflow: "hidden", marginTop: 3 }}>
-                              <div style={{ width: `${s.rate}%`, height: "100%", background: rateColor, borderRadius: 2 }} />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )
-            }
-          </div>
+          <AdminLeaderboardPanel data={leaderboardFull} loading={leaderboardLoading} onRefresh={loadLeaderboard} />
 
           {/* Academic Year Manager Modal */}
           {showAcadYearMgr && (
