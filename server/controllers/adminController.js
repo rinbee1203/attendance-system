@@ -790,6 +790,69 @@ const getAnomalies = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: "Anomaly detection failed." }); }
 };
 
+
+// ── Batch Register Students (Grade 11 SHS) ────────────────────────────────────
+const batchRegisterStudents = async (req, res) => {
+  try {
+    const { students, academicYear, defaultPassword } = req.body;
+    // students = [{ name, email, studentId, section, strand }]
+    if (!students || !Array.isArray(students) || students.length === 0)
+      return res.status(400).json({ success: false, message: "No student data provided." });
+    if (students.length > 200)
+      return res.status(400).json({ success: false, message: "Maximum 200 students per batch." });
+
+    const password = defaultPassword || "AttendQR@2026";
+    const results = { created: [], skipped: [], errors: [] };
+
+    for (const s of students) {
+      const name  = (s.name  || "").trim();
+      const email = (s.email || "").trim().toLowerCase();
+      const studentId = (s.studentId || s.student_id || s.lrn || "").trim();
+      const section   = (s.section   || "").trim();
+      const strand    = (s.strand    || "").trim();
+
+      if (!name || !email) {
+        results.errors.push({ row: s, reason: "Missing name or email" });
+        continue;
+      }
+
+      // Check duplicate
+      const existing = await User.findOne({ email });
+      if (existing) {
+        results.skipped.push({ email, reason: "Email already registered" });
+        continue;
+      }
+
+      try {
+        const user = await User.create({
+          name, email, password,
+          role: "student",
+          grade: "Grade 11",
+          section: section || null,
+          studentId: studentId || null,
+          academicYear: academicYear || null,
+          isVerified: true, // admin-registered students are pre-verified
+          mustChangePassword: true, // force change on first login
+        });
+        results.created.push({ name: user.name, email: user.email, studentId: user.studentId });
+      } catch (err) {
+        results.errors.push({ row: { name, email }, reason: err.message });
+      }
+    }
+
+    await logAction(req, "BATCH_REGISTER", `${results.created.length} students`, null, "user",
+      `Created: ${results.created.length}, Skipped: ${results.skipped.length}, Errors: ${results.errors.length} | Year: ${academicYear || "unset"}`
+    );
+
+    res.json({
+      success: true,
+      message: `${results.created.length} student${results.created.length !== 1 ? "s" : ""} registered. ${results.skipped.length} skipped. ${results.errors.length} errors.`,
+      ...results,
+      defaultPassword: password,
+    });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+};
+
 module.exports = {
   setupAdmin, getAnalytics, getRiskPrediction, getAnomalies, getStats, getActivityOverview, getSystemLogs,
   getUsers, getUser, deleteUser, verifyUser, unverifyUser, resetUserPassword,
@@ -798,5 +861,6 @@ module.exports = {
   getAnnouncements, createAnnouncement, deleteAnnouncement, markAnnouncementRead,
   globalSearch,
   getSessions, stopSession, deleteSession,
+  batchRegisterStudents,
   getDeviceRequests, approveDevice, rejectDevice, resetTrustedDevice, toggleDevicePolicy,
 };
