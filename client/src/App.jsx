@@ -1,5 +1,55 @@
 import { useState, useEffect, useCallback, createContext, useContext, useRef } from "react";
 
+// ─── PWA SERVICE WORKER ──────────────────────────────────────────────────────
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js")
+      .then(reg => {
+        // Listen for sync messages from SW
+        navigator.serviceWorker.addEventListener("message", (e) => {
+          if (e.data?.type === "SYNC_OFFLINE_CHECKINS") syncOfflineQueue();
+        });
+      }).catch(() => {});
+  });
+}
+
+// Offline check-in queue management
+const OFFLINE_QUEUE_KEY = "attendqr-offline-queue";
+
+const getOfflineQueue = () => {
+  try { return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || "[]"); }
+  catch { return []; }
+};
+
+const addToOfflineQueue = (token, userId) => {
+  const queue = getOfflineQueue();
+  if (!queue.find(q => q.token === token)) {
+    queue.push({ token, userId, queuedAt: new Date().toISOString() });
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+  }
+};
+
+const syncOfflineQueue = async () => {
+  const queue = getOfflineQueue();
+  if (!queue.length) return;
+  const remaining = [];
+  for (const item of queue) {
+    try {
+      await api.post("/attendance/checkin", { token: item.token });
+    } catch(e) {
+      if (e.message?.includes("already marked") || e.message?.includes("expired")) {
+        // Drop — already processed or too old
+      } else {
+        remaining.push(item); // Keep for retry
+      }
+    }
+  }
+  localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(remaining));
+  if (queue.length - remaining.length > 0) {
+    console.log(`Synced ${queue.length - remaining.length} offline check-ins`);
+  }
+};
+
 // ─── API CONFIG ────────────────────────────────────────────────────────────────
 const API_BASE = "https://attendance-system-api-wc0k.onrender.com/api";
 
@@ -3039,7 +3089,10 @@ function TeacherDashboard() {
   const [rosterSession, setRosterSession]   = useState(null);
   const [absenceSession, setAbsenceSession] = useState(null);
   const [editSession, setEditSession]   = useState(null);
-  const [sessionTimers, setSessionTimers] = useState({}); // sessionId -> elapsed seconds
+  const [sessionTimers, setSessionTimers] = useState({});
+  const [showScheduler, setShowScheduler] = useState(false);
+  const [showForecast, setShowForecast]   = useState(false);
+  const [showLeaderboard, setShowLeaderboard] = useState(false); // sessionId -> elapsed seconds
   const [liveCounters, setLiveCounters]   = useState({}); // sessionId -> live count
   const timerRef = useRef(null);
 
@@ -3337,7 +3390,12 @@ function TeacherDashboard() {
                 <h1 className="page-title">Teacher Dashboard</h1>
                 <p className="page-sub">Manage your class attendance sessions</p>
               </div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setShowLeaderboard(true)} title="Section leaderboard">🏆 Board</button>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setShowForecast(true)} title="Attendance forecast">🔮 Forecast</button>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setShowScheduler(true)} title="Recurring schedules">🔁 Schedules</button>
               <button className="btn btn-primary" onClick={() => setShowCreate(true)}>+ New Session</button>
+            </div>
             </div>
 
             <div className="stats-grid">
@@ -3471,6 +3529,15 @@ function TeacherDashboard() {
         />
       )}
 
+      {showScheduler && (
+        <RecurringScheduleModal onClose={()=>setShowScheduler(false)} onSaved={fetchSessions}/>
+      )}
+      {showForecast && (
+        <AttendanceForecastPanel onClose={()=>setShowForecast(false)}/>
+      )}
+      {showLeaderboard && (
+        <SectionLeaderboard onClose={()=>setShowLeaderboard(false)}/>
+      )}
       {rosterSession && (
         <RosterManagerModal
           session={rosterSession}
@@ -3556,6 +3623,13 @@ function CheckInPage({ token }) {
 
   const handleCheckIn = async () => {
     setStatus("loading");
+    // Offline mode — queue check-in for later sync
+    if (!navigator.onLine) {
+      addToOfflineQueue(token, user?._id);
+      setMessage("📶 You are offline. Your check-in has been saved and will sync automatically when you reconnect to the internet.");
+      setStatus("success");
+      return;
+    }
     try {
       const data = await api.post("/attendance/checkin", { token });
       setMessage(data.message);
@@ -4279,6 +4353,516 @@ function AnnouncementBanner() {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+
+// ─── OFFLINE INDICATOR ───────────────────────────────────────────────────────
+function OfflineIndicator() {
+  const [offline, setOffline] = useState(!navigator.onLine);
+  const [queueCount, setQueueCount] = useState(0);
+
+  useEffect(() => {
+    const goOffline = () => setOffline(true);
+    const goOnline  = () => {
+      setOffline(false);
+      syncOfflineQueue();
+      setQueueCount(0);
+    };
+    window.addEventListener("offline", goOffline);
+    window.addEventListener("online", goOnline);
+
+    // Check queue count periodically
+    const interval = setInterval(() => {
+      setQueueCount(getOfflineQueue().length);
+    }, 3000);
+
+    return () => {
+      window.removeEventListener("offline", goOffline);
+      window.removeEventListener("online", goOnline);
+      clearInterval(interval);
+    };
+  }, []);
+
+  if (!offline && queueCount === 0) return null;
+
+  return (
+    <div style={{
+      background: offline ? "var(--red)" : "var(--amber)",
+      color: "#fff", padding:"8px 24px",
+      display:"flex", alignItems:"center", gap:10,
+      fontSize:"0.82rem", fontWeight:600,
+    }}>
+      <span>{offline ? "📶 No internet connection" : "⏳ Syncing offline check-ins..."}</span>
+      {queueCount > 0 && (
+        <span style={{ padding:"2px 8px", background:"rgba(255,255,255,0.2)", borderRadius:20 }}>
+          {queueCount} pending
+        </span>
+      )}
+      {!offline && queueCount > 0 && (
+        <button onClick={() => syncOfflineQueue().then(()=>setQueueCount(0))}
+          style={{ background:"rgba(255,255,255,0.2)", border:"none", cursor:"pointer", color:"#fff", padding:"3px 10px", borderRadius:20, fontSize:"0.78rem" }}>
+          Sync Now
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── SECTION LEADERBOARD ────────────────────────────────────────────────────
+function SectionLeaderboard({ onClose }) {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  useEscKey(onClose);
+
+  useEffect(() => {
+    api.get("/academic/leaderboard")
+      .then(d => setData(d.leaderboard || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const medals = ["🥇","🥈","🥉"];
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" style={{ maxWidth:520, width:"96vw" }} onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="modal-title">🏆 Section Attendance Leaderboard</h2>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          {loading ? <div style={{textAlign:"center",padding:"30px"}}><Spinner size={24}/></div>
+          : data.length === 0 ? <div style={{textAlign:"center",color:"var(--muted)",padding:"30px"}}>No section data yet.</div>
+          : (
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {data.map((s,i) => (
+                <div key={s.key} style={{
+                  display:"flex", alignItems:"center", gap:12, padding:"12px 14px",
+                  borderRadius:"var(--radius-sm)", border:`1px solid ${i===0?"var(--amber)":i===1?"var(--gray)":i===2?"var(--orange,#C2410C)":"var(--border)"}`,
+                  background: i===0?"var(--amber-lt)":i===1?"var(--surface2)":i===2?"var(--lorange,#FFEDD5)":"var(--surface2)",
+                }}>
+                  <div style={{fontSize:"1.5rem",width:32,textAlign:"center",flexShrink:0}}>
+                    {medals[i] || `#${i+1}`}
+                  </div>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:"0.9rem",color:"var(--ink)"}}>{s.grade} — {s.section}</div>
+                    <div style={{fontSize:"0.74rem",color:"var(--muted)",marginTop:2}}>
+                      {s.students} students · {s.present} present · {s.absent} absent
+                    </div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:"1.4rem",fontWeight:800,color:s.rate>=90?"var(--green)":s.rate>=75?"var(--amber)":"var(--red)"}}>{s.rate}%</div>
+                    <div style={{width:60,height:5,background:"var(--border)",borderRadius:3,overflow:"hidden",marginTop:4}}>
+                      <div style={{width:`${s.rate}%`,height:"100%",background:s.rate>=90?"var(--green)":s.rate>=75?"var(--amber)":"var(--red)",borderRadius:3}}/>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── RECURRING SCHEDULE MODAL ─────────────────────────────────────────────────
+function RecurringScheduleModal({ onClose, onSaved }) {
+  const DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const [form, setForm] = useState({
+    subject:"", room:"", daysOfWeek:[], startTime:"07:30",
+    durationMinutes:60, lateAfterMinutes:15,
+    allowedGrades:"", allowedSections:"",
+  });
+  const [schedules, setSchedules] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [view, setView] = useState("list"); // list | create
+  useEscKey(onClose);
+
+  const loadSchedules = () => {
+    api.get("/academic/schedules").then(d => setSchedules(d.schedules||[])).catch(()=>{});
+  };
+
+  useEffect(() => { loadSchedules(); }, []);
+
+  const toggleDay = (d) => setForm(f => ({
+    ...f, daysOfWeek: f.daysOfWeek.includes(d) ? f.daysOfWeek.filter(x=>x!==d) : [...f.daysOfWeek, d].sort()
+  }));
+
+  const handleCreate = async () => {
+    if (!form.subject || !form.daysOfWeek.length || !form.startTime)
+      return alert("Subject, days, and start time are required.");
+    setLoading(true);
+    try {
+      await api.request("POST", "/academic/schedules", {
+        ...form,
+        allowedGrades: form.allowedGrades ? form.allowedGrades.split(",").map(s=>s.trim()).filter(Boolean) : [],
+        allowedSections: form.allowedSections ? form.allowedSections.split(",").map(s=>s.trim()).filter(Boolean) : [],
+      });
+      loadSchedules();
+      setView("list");
+      setForm({ subject:"", room:"", daysOfWeek:[], startTime:"07:30", durationMinutes:60, lateAfterMinutes:15, allowedGrades:"", allowedSections:"" });
+      onSaved?.();
+    } catch(e) { alert(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    try {
+      const d = await api.request("POST", "/academic/generate-sessions");
+      alert(d.message);
+      onSaved?.();
+    } catch(e) { alert(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this recurring schedule?")) return;
+    await api.request("DELETE", `/academic/schedules/${id}`);
+    loadSchedules();
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" style={{maxWidth:560,width:"96vw"}} onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="modal-title">🔁 Recurring Schedules</h2>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body" style={{display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{display:"flex",gap:8}}>
+            <button className={`btn btn-sm ${view==="list"?"btn-primary":"btn-ghost"}`} onClick={()=>setView("list")}>My Schedules</button>
+            <button className={`btn btn-sm ${view==="create"?"btn-primary":"btn-ghost"}`} onClick={()=>setView("create")}>+ New Schedule</button>
+            <button className="btn btn-green btn-sm" style={{marginLeft:"auto"}} onClick={handleGenerate} disabled={loading}>
+              {loading?<Spinner size={14}/>:"⚡ Generate Today's Sessions"}
+            </button>
+          </div>
+
+          {view === "list" ? (
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {schedules.length===0 ? (
+                <div style={{textAlign:"center",padding:"30px",color:"var(--muted)"}}>
+                  No recurring schedules yet. Create one to auto-generate daily sessions.
+                </div>
+              ) : schedules.map(s => (
+                <div key={s._id} style={{padding:"12px 14px",borderRadius:"var(--radius-sm)",border:"1px solid var(--border)",background:"var(--surface2)"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:700,fontSize:"0.88rem",color:"var(--ink)"}}>{s.subject}</div>
+                      <div style={{fontSize:"0.75rem",color:"var(--muted)",marginTop:2}}>
+                        {s.daysOfWeek.map(d=>DAY_NAMES[d]).join(", ")} · {s.startTime} · {s.durationMinutes}min
+                        {s.room && ` · ${s.room}`}
+                      </div>
+                    </div>
+                    <button className="btn btn-ghost btn-sm" style={{color:"var(--red)"}} onClick={()=>handleDelete(s._id)}>🗑</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div className="form-group">
+                <label className="form-label">Subject *</label>
+                <input className="form-input" value={form.subject} onChange={e=>setForm(f=>({...f,subject:e.target.value}))} placeholder="e.g. Mathematics"/>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                <div className="form-group">
+                  <label className="form-label">Room</label>
+                  <input className="form-input" value={form.room} onChange={e=>setForm(f=>({...f,room:e.target.value}))} placeholder="Room 101"/>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Start Time *</label>
+                  <input className="form-input" type="time" value={form.startTime} onChange={e=>setForm(f=>({...f,startTime:e.target.value}))}/>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Duration (min)</label>
+                  <input className="form-input" type="number" value={form.durationMinutes} onChange={e=>setForm(f=>({...f,durationMinutes:parseInt(e.target.value)||60}))}/>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Late After (min)</label>
+                  <input className="form-input" type="number" value={form.lateAfterMinutes} onChange={e=>setForm(f=>({...f,lateAfterMinutes:parseInt(e.target.value)||15}))}/>
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Days of Week *</label>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {DAY_NAMES.map((d,i) => (
+                    <button key={i} type="button" onClick={()=>toggleDay(i)}
+                      style={{padding:"6px 12px",borderRadius:"var(--radius-sm)",cursor:"pointer",fontWeight:700,fontSize:"0.82rem",
+                        background:form.daysOfWeek.includes(i)?"var(--accent)":"var(--surface2)",
+                        color:form.daysOfWeek.includes(i)?"#fff":"var(--muted)",
+                        border:form.daysOfWeek.includes(i)?"none":"1px solid var(--border)"}}>
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                <div className="form-group">
+                  <label className="form-label">Allowed Grades</label>
+                  <input className="form-input" placeholder="Grade 11, Grade 12" value={form.allowedGrades} onChange={e=>setForm(f=>({...f,allowedGrades:e.target.value}))}/>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Allowed Sections</label>
+                  <input className="form-input" placeholder="STEM-A, HUMSS-B" value={form.allowedSections} onChange={e=>setForm(f=>({...f,allowedSections:e.target.value}))}/>
+                </div>
+              </div>
+              <button className="btn btn-primary" onClick={handleCreate} disabled={loading}>
+                {loading?<Spinner size={16}/>:"Save Recurring Schedule"}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ATTENDANCE FORECAST PANEL ────────────────────────────────────────────────
+function AttendanceForecastPanel({ onClose }) {
+  const [forecast, setForecast] = useState([]);
+  const [loading, setLoading] = useState(true);
+  useEscKey(onClose);
+
+  useEffect(() => {
+    api.get("/academic/forecast")
+      .then(d => setForecast(d.forecast||[]))
+      .catch(()=>{})
+      .finally(()=>setLoading(false));
+  }, []);
+
+  // Group by date
+  const grouped = forecast.reduce((acc, f) => {
+    if (!acc[f.date]) acc[f.date] = [];
+    acc[f.date].push(f);
+    return acc;
+  }, {});
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" style={{maxWidth:560,width:"96vw"}} onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="modal-title">🔮 Attendance Forecast — Next 7 Days</h2>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body" style={{display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{padding:"10px 12px",background:"var(--accent-lt)",borderRadius:"var(--radius-sm)",fontSize:"0.8rem",color:"var(--accent)"}}>
+            Predictions based on day-of-week patterns from the last 60 days. Accuracy improves with more session history.
+          </div>
+          {loading ? <div style={{textAlign:"center",padding:"30px"}}><Spinner size={24}/></div>
+          : Object.keys(grouped).length === 0 ? (
+            <div style={{textAlign:"center",padding:"30px",color:"var(--muted)"}}>
+              Not enough session history to generate forecasts. Run at least 4 weeks of sessions first.
+            </div>
+          ) : Object.entries(grouped).map(([date, items]) => (
+            <div key={date}>
+              <div style={{fontWeight:700,fontSize:"0.82rem",color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>{date}</div>
+              {items.map((item,i) => (
+                <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",marginBottom:6,
+                  borderRadius:"var(--radius-sm)",border:"1px solid var(--border)",background:"var(--surface2)"}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:600,fontSize:"0.85rem",color:"var(--ink)"}}>{item.subject}</div>
+                    <div style={{fontSize:"0.74rem",color:"var(--muted)",marginTop:2}}>
+                      Historical absent rate: {item.historicalAbsentRate}%
+                      {item.rosterSize > 0 && ` · Roster: ${item.rosterSize} students`}
+                    </div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:"0.88rem",fontWeight:700,color:"var(--green)"}}>~{item.predictedCheckins} expected</div>
+                    {item.predictedAbsents !== null && (
+                      <div style={{fontSize:"0.74rem",color:"var(--red)"}}>~{item.predictedAbsents} absent</div>
+                    )}
+                  </div>
+                  <div style={{padding:"2px 8px",borderRadius:20,fontSize:"0.7rem",fontWeight:700,
+                    background:item.confidence==="medium"?"var(--accent-lt)":"var(--lgray)",
+                    color:item.confidence==="medium"?"var(--accent)":"var(--muted)"}}>
+                    {item.confidence}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ACADEMIC YEAR MANAGER ────────────────────────────────────────────────────
+function AcademicYearManager({ onClose }) {
+  const [years, setYears] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState("list");
+  const [form, setForm] = useState({ name:"", startDate:"", endDate:"", semester:"1st", gradeMap:[
+    {fromGrade:"Grade 7", toGrade:"Grade 8"},
+    {fromGrade:"Grade 8", toGrade:"Grade 9"},
+    {fromGrade:"Grade 9", toGrade:"Grade 10"},
+    {fromGrade:"Grade 10", toGrade:"Grade 11"},
+    {fromGrade:"Grade 11", toGrade:"Grade 12"},
+  ]});
+  const [promoting, setPromoting] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  useEscKey(onClose);
+
+  const load = () => {
+    api.get("/academic/years").then(d=>setYears(d.years||[])).catch(()=>{}).finally(()=>setLoading(false));
+  };
+  useEffect(()=>{ load(); },[]);
+
+  const handleCreate = async () => {
+    if (!form.name || !form.startDate || !form.endDate) return alert("All fields required.");
+    setActionLoading(true);
+    try {
+      await api.request("POST", "/academic/years", form);
+      load(); setView("list");
+    } catch(e){ alert(e.message); }
+    finally { setActionLoading(false); }
+  };
+
+  const handleActivate = async (id) => {
+    setActionLoading(true);
+    try {
+      const d = await api.request("PATCH", `/academic/years/${id}/activate`);
+      alert(d.message); load();
+    } catch(e){ alert(e.message); }
+    finally { setActionLoading(false); }
+  };
+
+  const handleArchive = async (id) => {
+    if (!window.confirm("Archive this year? All sessions will be archived.")) return;
+    setActionLoading(true);
+    try {
+      const d = await api.request("PATCH", `/academic/years/${id}/archive`);
+      alert(d.message); load();
+    } catch(e){ alert(e.message); }
+    finally { setActionLoading(false); }
+  };
+
+  const handlePromote = async (id) => {
+    if (!window.confirm("Promote students? This will update all students' grade levels based on the grade map. This cannot be undone.")) return;
+    setActionLoading(true);
+    try {
+      const d = await api.request("POST", `/academic/years/${id}/promote`);
+      alert("Promoted: " + d.promoted + " students. " + (d.results||[]).map(r=>r.from+" to "+r.to+": "+r.count).join(", "));
+      load();
+    } catch(e){ alert(e.message); }
+    finally { setActionLoading(false); }
+  };
+
+  const updateGradeMap = (i, field, val) => {
+    setForm(f => {
+      const gm = [...f.gradeMap];
+      gm[i] = {...gm[i], [field]: val};
+      return {...f, gradeMap: gm};
+    });
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" style={{maxWidth:580,width:"96vw"}} onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="modal-title">📅 Academic Year Management</h2>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body" style={{display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{display:"flex",gap:8}}>
+            <button className={`btn btn-sm ${view==="list"?"btn-primary":"btn-ghost"}`} onClick={()=>setView("list")}>Academic Years</button>
+            <button className={`btn btn-sm ${view==="create"?"btn-primary":"btn-ghost"}`} onClick={()=>setView("create")}>+ New Year</button>
+          </div>
+
+          {view === "list" ? (
+            loading ? <div style={{textAlign:"center",padding:"20px"}}><Spinner size={22}/></div>
+            : years.length === 0 ? (
+              <div style={{textAlign:"center",padding:"30px",color:"var(--muted)"}}>No academic years yet. Create one to get started.</div>
+            ) : (
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {years.map(y => (
+                  <div key={y._id} style={{padding:"14px 16px",borderRadius:"var(--radius-sm)",
+                    border:`2px solid ${y.isActive?"var(--green)":"var(--border)"}`,
+                    background:y.isActive?"var(--green-lt)":"var(--surface2)"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontWeight:700,fontSize:"0.92rem",color:"var(--ink)",display:"flex",alignItems:"center",gap:8}}>
+                          {y.name}
+                          {y.isActive && <span style={{fontSize:"0.7rem",padding:"2px 8px",borderRadius:20,background:"var(--green)",color:"#fff",fontWeight:700}}>● ACTIVE</span>}
+                          {y.archivedAt && <span style={{fontSize:"0.7rem",padding:"2px 8px",borderRadius:20,background:"var(--mgray)",color:"var(--gray)",fontWeight:700}}>ARCHIVED</span>}
+                        </div>
+                        <div style={{fontSize:"0.75rem",color:"var(--muted)",marginTop:2}}>
+                          {new Date(y.startDate).toLocaleDateString("en-PH",{month:"short",day:"numeric",year:"numeric"})} — {new Date(y.endDate).toLocaleDateString("en-PH",{month:"short",day:"numeric",year:"numeric"})}
+                          · {y.semester} Semester
+                          {y.promotedAt && ` · Promoted ${new Date(y.promotedAt).toLocaleDateString("en-PH",{month:"short",day:"numeric",year:"numeric"})}`}
+                        </div>
+                      </div>
+                    </div>
+                    {!y.archivedAt && (
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                        {!y.isActive && (
+                          <button className="btn btn-primary btn-sm" onClick={()=>handleActivate(y._id)} disabled={actionLoading}>
+                            ✓ Set Active
+                          </button>
+                        )}
+                        {y.isActive && !y.promotedAt && (
+                          <button className="btn btn-sm" style={{background:"var(--amber)",color:"#fff",border:"none",cursor:"pointer",padding:"6px 12px",borderRadius:"var(--radius-sm)",fontWeight:600,fontSize:"0.8rem"}}
+                            onClick={()=>handlePromote(y._id)} disabled={actionLoading}>
+                            🎓 Promote Students
+                          </button>
+                        )}
+                        <button className="btn btn-ghost btn-sm" style={{color:"var(--muted)"}} onClick={()=>handleArchive(y._id)} disabled={actionLoading}>
+                          📦 Archive
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )
+          ) : (
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                <div className="form-group" style={{gridColumn:"1/-1"}}>
+                  <label className="form-label">Year Name *</label>
+                  <input className="form-input" placeholder="e.g. 2025-2026" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Start Date *</label>
+                  <input className="form-input" type="date" value={form.startDate} onChange={e=>setForm(f=>({...f,startDate:e.target.value}))}/>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">End Date *</label>
+                  <input className="form-input" type="date" value={form.endDate} onChange={e=>setForm(f=>({...f,endDate:e.target.value}))}/>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Semester</label>
+                  <select className="form-input" value={form.semester} onChange={e=>setForm(f=>({...f,semester:e.target.value}))}>
+                    <option value="1st">1st Semester</option>
+                    <option value="2nd">2nd Semester</option>
+                    <option value="Summer">Summer</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="form-label" style={{marginBottom:8}}>🎓 Grade Promotion Map</label>
+                <div style={{fontSize:"0.78rem",color:"var(--muted)",marginBottom:8}}>Define how grades advance when "Promote Students" is triggered for this year.</div>
+                {form.gradeMap.map((gm,i) => (
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                    <input className="form-input" style={{flex:1,fontSize:"0.83rem"}} placeholder="From (e.g. Grade 11)" value={gm.fromGrade} onChange={e=>updateGradeMap(i,"fromGrade",e.target.value)}/>
+                    <span style={{color:"var(--muted)",flexShrink:0}}>→</span>
+                    <input className="form-input" style={{flex:1,fontSize:"0.83rem"}} placeholder="To (e.g. Grade 12)" value={gm.toGrade} onChange={e=>updateGradeMap(i,"toGrade",e.target.value)}/>
+                    <button onClick={()=>setForm(f=>({...f,gradeMap:f.gradeMap.filter((_,j)=>j!==i)}))} style={{background:"none",border:"none",cursor:"pointer",color:"var(--red)",flexShrink:0}}>✕</button>
+                  </div>
+                ))}
+                <button className="btn btn-ghost btn-sm" onClick={()=>setForm(f=>({...f,gradeMap:[...f.gradeMap,{fromGrade:"",toGrade:""}]}))}>+ Add Grade Level</button>
+              </div>
+              <button className="btn btn-primary" onClick={handleCreate} disabled={actionLoading}>
+                {actionLoading?<Spinner size={16}/>:"Create Academic Year"}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -6018,6 +6602,9 @@ function AdminDashboard() {
   const [globalLoading, setGlobalLoading]   = useState(false);
   const [selectedIds, setSelectedIds]       = useState([]);
   const [analytics, setAnalytics]           = useState(null);
+  const [leaderboard, setLeaderboard]       = useState([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [showAcadYearMgr, setShowAcadYearMgr] = useState(false);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsDays, setAnalyticsDays]   = useState(30);
   const [riskData, setRiskData]             = useState(null);
@@ -6064,6 +6651,13 @@ function AdminDashboard() {
       setDeviceRequests(d?.requests || []);
     } catch(e) { showToast(e.message, "error"); }
     finally { setDeviceLoading(false); }
+  };
+
+  const loadLeaderboard = async () => {
+    setLeaderboardLoading(true);
+    try { const d = await api.get("/academic/leaderboard"); setLeaderboard(d.leaderboard||[]); }
+    catch(e) { showToast(e.message,"error"); }
+    finally { setLeaderboardLoading(false); }
   };
 
   const loadAnalytics = async (days = analyticsDays) => {
@@ -6230,6 +6824,7 @@ function AdminDashboard() {
     if (tab === "logs")           loadLogs();
     if (tab === "overview")       loadActivity(activityPeriod);
     if (tab === "ai")             { loadAnalytics(); loadRisk(); loadAnomalies(); }
+    if (tab === "academic")       { loadLeaderboard(); }
   }, [tab, roleFilter, verifiedFilter, sessionFilter]);
 
   const handleSearch = (e) => {
@@ -6300,7 +6895,7 @@ function AdminDashboard() {
 
       {/* Tabs */}
       <div style={{ display:"flex", gap:4, borderBottom:"2px solid var(--border)", marginBottom:20 }}>
-        {[["overview","📊 Overview"], ["ai","🤖 AI Insights"], ["users","👥 Students"], ["teachers","🧑‍🏫 Teachers"], ["sessions","📋 Sessions"], ["devices","📱 Devices"], ["announcements","📢 Announcements"], ["email","✉️ Email Blast"], ["logs","🗒 Logs"]].map(([key, label]) => (
+        {[["overview","📊 Overview"], ["ai","🤖 AI Insights"], ["academic","🎓 Academic"], ["users","👥 Students"], ["teachers","🧑‍🏫 Teachers"], ["sessions","📋 Sessions"], ["devices","📱 Devices"], ["announcements","📢 Announcements"], ["email","✉️ Email Blast"], ["logs","🗒 Logs"]].map(([key, label]) => (
           <button key={key} onClick={() => { setTab(key); setSearch(""); }} style={{
             padding:"8px 18px", fontWeight:700, fontSize:"0.85rem", border:"none", cursor:"pointer",
             background:"none", borderBottom: tab === key ? "2px solid var(--accent)" : "2px solid transparent",
@@ -6714,6 +7309,73 @@ function AdminDashboard() {
           )}
 
         </div>
+      ) : tab === "academic" ? (
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          {/* Academic Year Manager button */}
+          <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
+            <div>
+              <div style={{ fontWeight:700, fontSize:"0.95rem", color:"var(--ink)" }}>🎓 Academic Management</div>
+              <div style={{ fontSize:"0.78rem", color:"var(--muted)" }}>Manage academic years, promote students, and view section rankings</div>
+            </div>
+            <button className="btn btn-primary btn-sm" style={{ marginLeft:"auto" }} onClick={() => setShowAcadYearMgr(true)}>
+              📅 Manage Academic Years
+            </button>
+          </div>
+
+          {/* Section Leaderboard */}
+          <div style={{ background:"var(--surface2)", borderRadius:"var(--radius-sm)", border:"1px solid var(--border)", padding:"16px" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+              <div style={{ fontWeight:700, fontSize:"0.9rem", color:"var(--ink)" }}>🏆 Section Attendance Leaderboard</div>
+              <button className="btn btn-ghost btn-sm" style={{ marginLeft:"auto" }} onClick={loadLeaderboard}>↻</button>
+            </div>
+            {leaderboardLoading ? <div style={{ textAlign:"center",padding:"20px" }}><Spinner size={22}/></div>
+            : leaderboard.length === 0 ? (
+              <div style={{ textAlign:"center",padding:"20px",color:"var(--muted)",fontSize:"0.83rem" }}>
+                No section data available yet.
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                {leaderboard.map((s,i) => {
+                  const medals = ["🥇","🥈","🥉"];
+                  return (
+                    <div key={s.key} style={{
+                      display:"flex", alignItems:"center", gap:12, padding:"10px 14px",
+                      borderRadius:"var(--radius-sm)",
+                      border:`1px solid ${i===0?"var(--amber)":i===1?"var(--mgray)":i===2?"var(--amber)":"var(--border)"}`,
+                      background: i===0?"var(--amber-lt)":i%2===0?"var(--surface)":"var(--surface2)",
+                    }}>
+                      <div style={{ fontSize:"1.3rem", width:28, textAlign:"center", flexShrink:0 }}>
+                        {medals[i] || `#${i+1}`}
+                      </div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontWeight:700, fontSize:"0.85rem", color:"var(--ink)" }}>
+                          {s.grade} — {s.section}
+                        </div>
+                        <div style={{ fontSize:"0.72rem", color:"var(--muted)", marginTop:2 }}>
+                          {s.students} students · {s.present} present · {s.absent} absent
+                        </div>
+                      </div>
+                      <div style={{ textAlign:"right" }}>
+                        <div style={{ fontSize:"1.2rem", fontWeight:800, color:s.rate>=90?"var(--green)":s.rate>=75?"var(--amber)":"var(--red)" }}>
+                          {s.rate}%
+                        </div>
+                        <div style={{ width:50, height:4, background:"var(--border)", borderRadius:2, overflow:"hidden", marginTop:3 }}>
+                          <div style={{ width:`${s.rate}%`, height:"100%", background:s.rate>=90?"var(--green)":s.rate>=75?"var(--amber)":"var(--red)", borderRadius:2 }}/>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Academic Year Manager Modal */}
+          {showAcadYearMgr && (
+            <AcademicYearManager onClose={() => setShowAcadYearMgr(false)} />
+          )}
+        </div>
+
       ) : tab === "overview" ? (
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
           {/* Period selector */}
@@ -6884,6 +7546,13 @@ function App() {
   const [resetToken, setResetToken] = useState("");
 
   useEffect(() => {
+    // Sync offline queue when app loads and is online
+    if (navigator.onLine) syncOfflineQueue();
+    window.addEventListener("online", syncOfflineQueue);
+    return () => window.removeEventListener("online", syncOfflineQueue);
+  }, []);
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const token  = params.get("token");
     const path   = window.location.pathname;
@@ -6926,6 +7595,8 @@ function App() {
       <Nav onSettings={() => setPage("settings")} />
       <EmailVerificationBanner />
       <AnnouncementBanner />
+      {/* Offline indicator */}
+      <OfflineIndicator />
       {suspiciousAlert && (
         <div style={{ background:"var(--accent-lt)", borderBottom:"1px solid var(--accent)", padding:"10px 24px", display:"flex", alignItems:"center", gap:12 }}>
           <span style={{ fontSize:"1rem" }}>🔔</span>
