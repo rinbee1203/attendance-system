@@ -11,6 +11,7 @@ const {
   globalSearch,
   getSessions, stopSession, deleteSession,
   getDeviceRequests, approveDevice, rejectDevice, resetTrustedDevice, toggleDevicePolicy,
+  batchRegisterStudents,
 } = require("../controllers/adminController");
 
 // One-time setup — public
@@ -46,6 +47,7 @@ router.patch("/users/:id/toggle-device-policy", toggleDevicePolicy);
 
 // Bulk actions
 router.post("/bulk-verify-users",   bulkVerifyUsers);
+router.post("/batch-register",       batchRegisterStudents);
 router.post("/bulk-delete-users",   bulkDeleteUsers);
 router.get("/export-users",         exportUsersExcel);
 
