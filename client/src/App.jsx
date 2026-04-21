@@ -4717,10 +4717,10 @@ function AdminLeaderboardPanel({ data, loading, onRefresh }) {
         ? <div style={{ textAlign: "center", padding: "24px" }}><Spinner size={22} /></div>
         : (
           <>
-            {tab === "section"  && <SectionTab />}
-            {tab === "session"  && <SessionTab />}
-            {tab === "perfect"  && <PerfectTab />}
-            {tab === "student"  && <StudentRankTab />}
+            {tab === "section"  && SectionTab()}
+            {tab === "session"  && SessionTab()}
+            {tab === "perfect"  && PerfectTab()}
+            {tab === "student"  && StudentRankTab()}
           </>
         )
       }
