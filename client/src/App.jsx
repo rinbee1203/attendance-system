@@ -4422,8 +4422,8 @@ function RateBar({ rate, width = 60 }) {
 }
 
 // ─── ADMIN LEADERBOARD PANEL (inline in Academic tab) ─────────────────────────
-function AdminLeaderboardPanel({ data, loading, onRefresh }) {
-  const [tab, setTab]           = useState("section");
+function AdminLeaderboardPanel({ data, loading, onRefresh, activeTab, onTabChange }) {
+  const [tab, setTab] = [activeTab ?? "section", onTabChange ?? (() => {})];
   const [perfPeriod, setPerfPeriod] = useState("fullYear");
   const [perfSub, setPerfSub]   = useState(null); // selected month/quarter key
   const [secRankKey, setSecRankKey] = useState(null);
@@ -4717,10 +4717,10 @@ function AdminLeaderboardPanel({ data, loading, onRefresh }) {
         ? <div style={{ textAlign: "center", padding: "24px" }}><Spinner size={22} /></div>
         : (
           <>
-            {tab === "section"  && SectionTab()}
-            {tab === "session"  && SessionTab()}
-            {tab === "perfect"  && PerfectTab()}
-            {tab === "student"  && StudentRankTab()}
+            {tab === "section"  && <SectionTab />}
+            {tab === "session"  && <SessionTab />}
+            {tab === "perfect"  && <PerfectTab />}
+            {tab === "student"  && <StudentRankTab />}
           </>
         )
       }
@@ -7343,6 +7343,7 @@ function AdminDashboard() {
   const [leaderboard, setLeaderboard]       = useState([]);
   const [leaderboardFull, setLeaderboardFull]   = useState(null);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [lbTab, setLbTab]                   = useState("section"); // persists across tab switches
   const [showAcadYearMgr, setShowAcadYearMgr] = useState(false);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsDays, setAnalyticsDays]   = useState(30);
@@ -8074,7 +8075,7 @@ function AdminDashboard() {
           })()}
 
           {/* Section Leaderboard */}
-          <AdminLeaderboardPanel data={leaderboardFull} loading={leaderboardLoading} onRefresh={loadLeaderboard} />
+          <AdminLeaderboardPanel data={leaderboardFull} loading={leaderboardLoading} onRefresh={loadLeaderboard} activeTab={lbTab} onTabChange={setLbTab} />
 
           {/* Academic Year Manager Modal */}
           {showAcadYearMgr && (
