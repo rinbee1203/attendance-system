@@ -593,7 +593,7 @@ function getDefaultEndDate() {
 
 // ─── STYLES ────────────────────────────────────────────────────────────────────
 const styles = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;1,9..144,300&display=swap');
+  /* Fonts served via <link> in index.html — no @import needed */
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   /* ── Global custom scrollbars ── */
@@ -4422,8 +4422,8 @@ function RateBar({ rate, width = 60 }) {
 }
 
 // ─── ADMIN LEADERBOARD PANEL (inline in Academic tab) ─────────────────────────
-function AdminLeaderboardPanel({ data, loading, onRefresh, activeTab, onTabChange }) {
-  const [tab, setTab] = [activeTab ?? "section", onTabChange ?? (() => {})];
+function AdminLeaderboardPanel({ data, loading, onRefresh }) {
+  const [tab, setTab]           = useState("section");
   const [perfPeriod, setPerfPeriod] = useState("fullYear");
   const [perfSub, setPerfSub]   = useState(null); // selected month/quarter key
   const [secRankKey, setSecRankKey] = useState(null);
@@ -7343,7 +7343,6 @@ function AdminDashboard() {
   const [leaderboard, setLeaderboard]       = useState([]);
   const [leaderboardFull, setLeaderboardFull]   = useState(null);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
-  const [lbTab, setLbTab]                   = useState("section"); // persists across tab switches
   const [showAcadYearMgr, setShowAcadYearMgr] = useState(false);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsDays, setAnalyticsDays]   = useState(30);
@@ -8075,7 +8074,7 @@ function AdminDashboard() {
           })()}
 
           {/* Section Leaderboard */}
-          <AdminLeaderboardPanel data={leaderboardFull} loading={leaderboardLoading} onRefresh={loadLeaderboard} activeTab={lbTab} onTabChange={setLbTab} />
+          <AdminLeaderboardPanel data={leaderboardFull} loading={leaderboardLoading} onRefresh={loadLeaderboard} />
 
           {/* Academic Year Manager Modal */}
           {showAcadYearMgr && (
