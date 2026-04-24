@@ -1,24 +1,11 @@
 import { useState, useEffect, useCallback, createContext, useContext, useRef } from "react";
 
 // ─── PWA SERVICE WORKER ──────────────────────────────────────────────────────
+// Unregister any stale service workers and clear old caches on every load
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    // Unregister any stale service workers first, then register fresh
-    navigator.serviceWorker.getRegistrations().then(registrations => {
-      const unregisterAll = registrations.map(r => r.unregister());
-      return Promise.all(unregisterAll);
-    }).then(() => {
-      // Clear all caches to remove stale bundles
-      return caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))));
-    }).then(() => {
-      // Register fresh service worker
-      return navigator.serviceWorker.register("/sw.js");
-    }).then(reg => {
-      navigator.serviceWorker.addEventListener("message", (e) => {
-        if (e.data?.type === "SYNC_OFFLINE_CHECKINS") syncOfflineQueue();
-      });
-    }).catch(() => {});
-  });
+  navigator.serviceWorker.getRegistrations()
+    .then(regs => regs.forEach(r => r.unregister()));
+  caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
 }
 
 // Offline check-in queue management
