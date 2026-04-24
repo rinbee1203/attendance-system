@@ -1,11 +1,16 @@
 import { useState, useEffect, useCallback, createContext, useContext, useRef } from "react";
 
 // ─── PWA SERVICE WORKER ──────────────────────────────────────────────────────
-// Unregister any stale service workers and clear old caches on every load
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.getRegistrations()
-    .then(regs => regs.forEach(r => r.unregister()));
-  caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js")
+      .then(reg => {
+        // Listen for sync messages from SW
+        navigator.serviceWorker.addEventListener("message", (e) => {
+          if (e.data?.type === "SYNC_OFFLINE_CHECKINS") syncOfflineQueue();
+        });
+      }).catch(() => {});
+  });
 }
 
 // Offline check-in queue management
@@ -2564,8 +2569,8 @@ function QRModal({ session, onClose, onRefresh, onStop }) {
     try { await onStop(); onClose(); } finally { setStopping(false); }
   };
 
-  const isUrgent = countdown <= 10;
-  const progressPct = Math.round((countdown / 60) * 100);
+  const isUrgent = countdown <= 5;
+  const progressPct = Math.round((countdown / 20) * 100);
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
