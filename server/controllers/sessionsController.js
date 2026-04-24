@@ -3,7 +3,7 @@ const QRCode = require("qrcode");
 const Session = require("../models/Session");
 const Attendance = require("../models/Attendance");
 
-const QR_EXPIRY_SECONDS = parseInt(process.env.QR_EXPIRY_SECONDS) || 60;
+const QR_EXPIRY_SECONDS = parseInt(process.env.QR_EXPIRY_SECONDS) || 20;
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
 
 // @desc    Create a new session
